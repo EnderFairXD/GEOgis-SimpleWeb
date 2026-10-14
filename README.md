@@ -21,14 +21,32 @@ arrastrando el marcador.
 
 ![Panel de administración con el mapa de ubicación](docs/capturas/admin.jpg)
 
-## Requisitos
+## Arranque rápido con Docker
+
+Solo necesitas Docker. Levanta PostgreSQL + PostGIS y la app, aplica las migraciones y carga
+los datos de ejemplo:
+
+```bash
+docker compose up --build
+```
+
+Abre <http://localhost:8000/>. Para entrar al panel de administración y poder mover jugadores,
+crea un usuario en otra terminal:
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+## Instalación manual
+
+### Requisitos
 
 - Python 3.10+
 - PostgreSQL con la extensión **PostGIS**
 - Librerías del sistema de GeoDjango: GDAL, GEOS y PROJ
   ([guía oficial](https://docs.djangoproject.com/en/5.2/ref/contrib/gis/install/))
 
-## Puesta en marcha
+### Puesta en marcha
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -64,7 +82,8 @@ jugadores, videojuegos y puntuaciones.
 ## Tests
 
 ```bash
-python manage.py test
+python manage.py test                                  # instalación manual
+docker compose run --rm web python manage.py test      # con Docker
 ```
 
 Necesitan la misma base de datos PostGIS (Django crea y borra una base de pruebas aparte).

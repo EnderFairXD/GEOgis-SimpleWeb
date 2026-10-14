@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: GeoDjango
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - datos_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U postgres -d GeoDjango"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: db
+      DB_PASSWORD: postgres
+      DJANGO_SECRET_KEY: solo-para-desarrollo-local
+      DJANGO_DEBUG: "1"
+    volumes:
+      - .:/app  # los cambios en el código se ven sin reconstruir la imagen
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  datos_postgres:
