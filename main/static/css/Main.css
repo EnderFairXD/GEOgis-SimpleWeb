@@ -19,6 +19,10 @@ header {
     text-align: center;
 }
 
+header a {
+    color: #8ecbff;
+}
+
 main {
     padding: 2rem;
     max-width: 900px;

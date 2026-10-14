@@ -8,6 +8,8 @@ from django.views.decorators.http import require_POST
 
 from .models import Jugador
 
+PERMISO_EDITAR = 'main.change_jugador'
+
 
 @ensure_csrf_cookie
 def index(request):
@@ -35,15 +37,22 @@ def index(request):
         })
 
     geojson = {'type': 'FeatureCollection', 'features': features}
-    return render(request, 'main/Main.html', {'datos_jugadores': geojson})
+    return render(request, 'main/Main.html', {
+        'datos_jugadores': geojson,
+        'puede_editar': request.user.has_perm(PERMISO_EDITAR),
+    })
 
 
 @require_POST
 def actualizar_ubicacion_jugador(request, pk):
     """Guarda la nueva posición de un jugador tras arrastrar su marcador.
 
-    Espera un JSON con {"lat": <float>, "lng": <float>}.
+    Espera un JSON con {"lat": <float>, "lng": <float>}. Solo pueden hacerlo
+    los usuarios con permiso para editar jugadores.
     """
+    if not request.user.has_perm(PERMISO_EDITAR):
+        return JsonResponse({'status': 'error', 'msg': 'No tienes permiso'}, status=403)
+
     try:
         datos = json.loads(request.body)
         lat = float(datos['lat'])

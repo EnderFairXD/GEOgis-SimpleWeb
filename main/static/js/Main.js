@@ -6,22 +6,27 @@ document.addEventListener('DOMContentLoaded', function () {
         attribution: '&copy; colaboradores de OpenStreetMap'
     }).addTo(mapa);
 
+    // El modo arrastrar solo se ofrece a quien puede guardar cambios (el servidor lo comprueba igualmente).
+    const puedeEditar = document.getElementById('mi_mapa').dataset.puedeEditar === '1';
+
     // Solo se puede arrastrar: dibujar, editar o borrar no se guardaría en el servidor.
-    mapa.pm.addControls({
-        position: 'topleft',
-        drawMarker: false,
-        drawPolyline: false,
-        drawPolygon: false,
-        drawCircle: false,
-        drawCircleMarker: false,
-        drawRectangle: false,
-        drawText: false,
-        cutPolygon: false,
-        editMode: false,
-        dragMode: true,
-        removalMode: false,
-        rotateMode: false
-    });
+    if (puedeEditar) {
+        mapa.pm.addControls({
+            position: 'topleft',
+            drawMarker: false,
+            drawPolyline: false,
+            drawPolygon: false,
+            drawCircle: false,
+            drawCircleMarker: false,
+            drawRectangle: false,
+            drawText: false,
+            cutPolygon: false,
+            editMode: false,
+            dragMode: true,
+            removalMode: false,
+            rotateMode: false
+        });
+    }
 
     const modal = new bootstrap.Modal(document.getElementById('jugadorModal'));
 

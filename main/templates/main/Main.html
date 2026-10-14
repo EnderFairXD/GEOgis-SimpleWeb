@@ -16,11 +16,16 @@
 
     <header>
         <h1>Mapa de jugadores</h1>
+        {% if puede_editar %}
         <p>Pulsa un jugador para ver sus puntuaciones. Activa el modo arrastrar para mover su ubicación.</p>
+        {% else %}
+        <p>Pulsa un jugador para ver sus puntuaciones.
+           <a href="{% url 'admin:login' %}?next=/">Inicia sesión</a> para mover su ubicación.</p>
+        {% endif %}
     </header>
 
     <!-- Aquí se pinta el mapa -->
-    <div id="mi_mapa"></div>
+    <div id="mi_mapa" data-puede-editar="{{ puede_editar|yesno:'1,0' }}"></div>
 
     <!-- Ventana con la ficha del jugador -->
     <div id="jugadorModal" class="modal" tabindex="-1">
