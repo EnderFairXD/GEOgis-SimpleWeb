@@ -2,10 +2,11 @@ import json
 
 from django.contrib.auth.models import Permission, User
 from django.contrib.gis.geos import Point
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import Jugador
+from .models import Jugador, Puntuacion, Videojuego
 
 
 class ActualizarUbicacionTests(TestCase):
@@ -106,3 +107,24 @@ class MapaTests(TestCase):
         respuesta = self.client.get('/')
 
         self.assertTrue(respuesta.context['puede_editar'])
+
+
+class CargarDemoTests(TestCase):
+    def test_crea_jugadores_con_ubicacion_y_puntuaciones(self):
+        call_command('cargar_demo', verbosity=0)
+
+        self.assertGreaterEqual(Jugador.objects.count(), 10)
+        self.assertFalse(Jugador.objects.filter(ubicacion__isnull=True).exists())
+        self.assertGreater(Videojuego.objects.count(), 0)
+        self.assertGreater(Puntuacion.objects.count(), 0)
+
+    def test_ejecutarlo_dos_veces_no_duplica_datos(self):
+        call_command('cargar_demo', verbosity=0)
+        totales = (Jugador.objects.count(), Videojuego.objects.count(), Puntuacion.objects.count())
+
+        call_command('cargar_demo', verbosity=0)
+
+        self.assertEqual(
+            (Jugador.objects.count(), Videojuego.objects.count(), Puntuacion.objects.count()),
+            totales,
+        )

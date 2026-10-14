@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function () {
         modal.show();
     }
 
-    L.geoJSON(datos, {
+    const capaJugadores = L.geoJSON(datos, {
         onEachFeature: function (feature, layer) {
             layer.on('click', function () {
                 mostrarFicha(feature.properties);
@@ -100,4 +100,9 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
     }).addTo(mapa);
+
+    // Encuadra el mapa en los jugadores; si no hay ninguno se queda la vista inicial.
+    if (capaJugadores.getLayers().length > 0) {
+        mapa.fitBounds(capaJugadores.getBounds(), { padding: [40, 40], maxZoom: 8 });
+    }
 });
