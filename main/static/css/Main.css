@@ -1,17 +1,14 @@
-
+/* Cabecera, mapa y pie en columna: el mapa ocupa todo el alto que queda libre. */
 body {
     margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
     font-family: Arial, Helvetica, sans-serif;
     background-color: #f4f4f4;
     color: #333;
 }
 
-#mi_mapa{
-    height: 650px;
-    width: 100%;
-    margin-top: 20px;
-    border: 2px solid #ccc;
-}
 header {
     background: #222;
     color: #fff;
@@ -23,31 +20,21 @@ header a {
     color: #8ecbff;
 }
 
-main {
-    padding: 2rem;
-    max-width: 900px;
-    margin: auto;
+#mi_mapa {
+    flex: 1;
+    min-height: 400px;
+    width: 100%;
+    border-top: 2px solid #ccc;
+    border-bottom: 2px solid #ccc;
 }
 
 footer {
     background: #222;
     color: #fff;
     text-align: center;
-    padding: 1rem;
-    position: fixed;
-    bottom: 0;
-    width: 100%;
+    padding: 0.75rem;
 }
 
-button {
-    padding: 0.6rem 1rem;
-    border: none;
-    background: #007bff;
-    color: white;
-    cursor: pointer;
-    border-radius: 4px;
-}
-
-button:hover {
-    background: #0056b3;
+footer p {
+    margin: 0;
 }
