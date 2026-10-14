@@ -1,9 +1,11 @@
 from django.urls import path
 
-from .views import actualizar_ubicacion_jugador, index
+from . import views
 
 urlpatterns = [
-    path('', index),
-    path('api/jugadores/<int:pk>/ubicacion/', actualizar_ubicacion_jugador,
+    path('', views.index, name='mapa'),
+    path('api/jugadores/', views.jugadores_geojson, name='jugadores_geojson'),
+    path('api/jugadores/<int:pk>/cercanos/', views.jugadores_cercanos, name='jugadores_cercanos'),
+    path('api/jugadores/<int:pk>/ubicacion/', views.actualizar_ubicacion_jugador,
          name='actualizar_ubicacion_jugador'),
 ]

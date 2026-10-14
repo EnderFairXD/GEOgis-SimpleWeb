@@ -84,18 +84,6 @@ class ActualizarUbicacionTests(TestCase):
 
 
 class MapaTests(TestCase):
-    def setUp(self):
-        Jugador.objects.create(alias='ConUbicacion', nombre='A', ip='192.0.2.1',
-                               ubicacion=Point(2.17, 41.39, srid=4326))
-        Jugador.objects.create(alias='SinUbicacion', nombre='B', ip='192.0.2.2')
-
-    def test_solo_muestra_jugadores_con_ubicacion(self):
-        respuesta = self.client.get('/')
-
-        aliases = [f['properties']['alias']
-                   for f in respuesta.context['datos_jugadores']['features']]
-        self.assertEqual(aliases, ['ConUbicacion'])
-
     def test_anonimo_no_ve_el_modo_arrastrar(self):
         respuesta = self.client.get('/')
 
@@ -109,6 +97,91 @@ class MapaTests(TestCase):
         respuesta = self.client.get('/')
 
         self.assertTrue(respuesta.context['puede_editar'])
+
+
+class ApiJugadoresTests(TestCase):
+    def setUp(self):
+        self.con_ubicacion = Jugador.objects.create(
+            alias='ConUbicacion', nombre='A', ip='192.0.2.1', plataforma='PS5',
+            ubicacion=Point(2.17, 41.39, srid=4326),
+        )
+        Jugador.objects.create(alias='SinUbicacion', nombre='B', ip='192.0.2.2')
+        juego = Videojuego.objects.create(nombre='Tetris', tipo='Puzle')
+        Puntuacion.objects.create(jugador=self.con_ubicacion, videojuego=juego, puntos=300)
+
+    def test_devuelve_geojson_solo_con_jugadores_con_ubicacion(self):
+        respuesta = self.client.get('/api/jugadores/')
+
+        self.assertEqual(respuesta.status_code, 200)
+        datos = respuesta.json()
+        self.assertEqual(datos['type'], 'FeatureCollection')
+        self.assertEqual([f['properties']['alias'] for f in datos['features']], ['ConUbicacion'])
+
+    def test_cada_jugador_lleva_su_posicion_y_su_ficha(self):
+        feature = self.client.get('/api/jugadores/').json()['features'][0]
+
+        self.assertEqual(feature['geometry'], {'type': 'Point', 'coordinates': [2.17, 41.39]})
+        self.assertEqual(feature['properties'], {
+            'id': self.con_ubicacion.pk,
+            'alias': 'ConUbicacion',
+            'nombre': 'A',
+            'plataforma': 'PS5',
+            'historial_juegos': [{'titulo': 'Tetris', 'puntos': 300}],
+        })
+
+    def test_no_expone_la_ip(self):
+        respuesta = self.client.get('/api/jugadores/')
+
+        self.assertNotContains(respuesta, '192.0.2.1')
+
+
+class JugadoresCercanosTests(TestCase):
+    def setUp(self):
+        crear = lambda alias, lng, lat: Jugador.objects.create(
+            alias=alias, nombre=alias, ip='192.0.2.1', ubicacion=Point(lng, lat, srid=4326))
+        self.madrid = crear('Madrid', -3.7038, 40.4168)
+        crear('Barcelona', 2.1734, 41.3851)  # ~505 km
+        crear('Valencia', -0.3763, 39.4699)  # ~302 km
+        crear('Berlin', 13.4050, 52.5200)    # ~1870 km
+        Jugador.objects.create(alias='SinUbicacion', nombre='X', ip='192.0.2.1')
+
+    def cercanos(self, jugador, **params):
+        return self.client.get(f'/api/jugadores/{jugador.pk}/cercanos/', params)
+
+    def test_devuelve_los_jugadores_dentro_del_radio_ordenados_por_distancia(self):
+        respuesta = self.cercanos(self.madrid, km=1000)
+
+        self.assertEqual(respuesta.status_code, 200)
+        cercanos = respuesta.json()['cercanos']
+        self.assertEqual([c['alias'] for c in cercanos], ['Valencia', 'Barcelona'])
+        self.assertAlmostEqual(cercanos[0]['distancia_km'], 302, delta=5)
+        self.assertAlmostEqual(cercanos[1]['distancia_km'], 505, delta=5)
+
+    def test_un_radio_mayor_incluye_jugadores_mas_lejanos(self):
+        cercanos = self.cercanos(self.madrid, km=2000).json()['cercanos']
+
+        self.assertEqual([c['alias'] for c in cercanos], ['Valencia', 'Barcelona', 'Berlin'])
+
+    def test_radio_por_defecto_de_500_km(self):
+        datos = self.cercanos(self.madrid).json()
+
+        self.assertEqual(datos['radio_km'], 500)
+        self.assertEqual([c['alias'] for c in datos['cercanos']], ['Valencia'])
+
+    def test_radio_no_valido(self):
+        for km in ['abc', '0', '-5', '50000']:
+            with self.subTest(km=km):
+                self.assertEqual(self.cercanos(self.madrid, km=km).status_code, 400)
+
+    def test_jugador_inexistente(self):
+        respuesta = self.client.get('/api/jugadores/9999/cercanos/')
+
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_jugador_sin_ubicacion(self):
+        sin_ubicacion = Jugador.objects.get(alias='SinUbicacion')
+
+        self.assertEqual(self.cercanos(sin_ubicacion).status_code, 400)
 
 
 class CargarDemoTests(TestCase):
