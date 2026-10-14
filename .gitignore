@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*_env/
+
+# Entorno local y secretos
+.env
+
+# Editor
+.idea/
+.vscode/
