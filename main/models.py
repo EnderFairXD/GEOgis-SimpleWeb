@@ -1,42 +1,26 @@
 from django.contrib.gis.db import models
-# Create your models here.
+
 
 class Jugador(models.Model):
-    alias= models.CharField(max_length=100)
+    class Plataforma(models.TextChoices):
+        STEAM = 'STEAM'
+        PS5 = 'PS5'
+        PS4 = 'PS4'
+        XBOX = 'XBOX'
+        PIRATA = 'PIRATA'
+
+    alias = models.CharField(max_length=100)
     nombre = models.CharField(max_length=100)
     ip = models.CharField(max_length=50)
-    #ESTO ES GEODJANGO
+    # Punto en coordenadas GPS (WGS84). GeoDjango lo guarda como (longitud, latitud).
     ubicacion = models.PointField(srid=4326, null=True, blank=False)
-    #el textchoice solo se puede hacer así
-    class Plataforma(models.TextChoices):
-        STEAM= "STEAM"
-        PS5= "PS5"
-        PS4= "PS4"
-        XBOX="XBOX"
-        PIRATA="PIRATA"
-
-
-    #Solo se eligen opciones preescritas y por defecto se elige steam
-    plataforma = models.CharField(
-
-        choices=Plataforma.choices,
-        default=Plataforma.STEAM
-    )
-
-    #como es una relación MtM, se pone de la siguiente manera
-    juegos = models.ManyToManyField(
-        #tabla con la que se junta
-        'Videojuego',
-        #esto es para "juntar" la tabla puntuación , para que guarden puntos
-        #sin el thorugh sería una tabla separada.
-        through='Puntuacion',
-        #desde la otra perspectiva
-        related_name='jugadores'
-    )
+    plataforma = models.CharField(choices=Plataforma.choices, default=Plataforma.STEAM)
+    # Relación con los videojuegos a través de Puntuacion, que guarda los puntos de cada uno.
+    juegos = models.ManyToManyField('Videojuego', through='Puntuacion', related_name='jugadores')
 
     class Meta:
-        verbose_name = "Jugador"
-        verbose_name_plural = "Jugadores"
+        verbose_name = 'Jugador'
+        verbose_name_plural = 'Jugadores'
 
     def __str__(self):
         return self.alias
@@ -47,25 +31,25 @@ class Videojuego(models.Model):
     tipo = models.CharField(max_length=50)
 
     class Meta:
-        verbose_name = "Videojuego"
-        verbose_name_plural = "Videojuegos"
-
+        verbose_name = 'Videojuego'
+        verbose_name_plural = 'Videojuegos'
 
     def __str__(self):
         return self.nombre
 
-#Clase intermedia
+
 class Puntuacion(models.Model):
+    """Puntos de un jugador en un videojuego (tabla intermedia de Jugador.juegos)."""
     jugador = models.ForeignKey(Jugador, on_delete=models.CASCADE)
     videojuego = models.ForeignKey(Videojuego, on_delete=models.CASCADE)
     puntos = models.IntegerField(default=0)
-    #meta lo que hace son reglas de la tabla
-    class Meta:
-        # NO DUPLICIDAD (unique)
-        unique_together = ('jugador', 'videojuego')
 
-        verbose_name = "Puntuacion"
-        verbose_name_plural = "Puntuaciones"
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['jugador', 'videojuego'], name='puntuacion_unica_por_juego'),
+        ]
+        verbose_name = 'Puntuacion'
+        verbose_name_plural = 'Puntuaciones'
 
     def __str__(self):
-        return f"{self.jugador} en {self.videojuego}: {self.puntos} pts"
+        return f'{self.jugador} en {self.videojuego}: {self.puntos} pts'

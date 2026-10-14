@@ -1,32 +1,31 @@
 from django.contrib.gis import admin
-from .models import Jugador, Videojuego, Puntuacion
+from django.db.models import Count
+
+from .models import Jugador, Puntuacion, Videojuego
 
 
-#CONFIGURACIÓN DE LA TABLA INTERMEDIA (PUNTUACIÓN)
-# Esto crea una "mini-tabla" dentro de la ficha del jugador
 class PuntuacionInline(admin.TabularInline):
+    """Puntuaciones del jugador, editables dentro de su ficha."""
     model = Puntuacion
     extra = 1
     autocomplete_fields = ['videojuego']
 
 
-#CONFIGURACIÓN DEL JUGADOR (Con el mapa y la tabla de juegos)
+@admin.register(Jugador)
 class JugadorAdmin(admin.GISModelAdmin):
     list_display = ('alias', 'nombre', 'plataforma', 'total_juegos')
     inlines = [PuntuacionInline]
-    # Metodo para ver cuántos juegos tiene cada uno
+
+    def get_queryset(self, request):
+        # Cuenta los juegos en la misma consulta del listado (sin una consulta por fila).
+        return super().get_queryset(request).annotate(num_juegos=Count('juegos'))
+
+    @admin.display(description='Juegos jugados', ordering='num_juegos')
     def total_juegos(self, obj):
-        return obj.juegos.count()
-
-    total_juegos.short_description = 'Juegos Jugados'
+        return obj.num_juegos
 
 
-#CONFIGURACIÓN DEL VIDEOJUEGO (Para crear el catálogo)
+@admin.register(Videojuego)
 class VideojuegoAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'tipo')
     search_fields = ('nombre',)
-
-
-#REGISTRO DE TODO
-admin.site.register(Jugador, JugadorAdmin)
-admin.site.register(Videojuego, VideojuegoAdmin)

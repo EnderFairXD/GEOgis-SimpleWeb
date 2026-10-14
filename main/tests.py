@@ -3,7 +3,9 @@ import json
 from django.contrib.auth.models import Permission, User
 from django.contrib.gis.geos import Point
 from django.core.management import call_command
+from django.db import IntegrityError, connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from .models import Jugador, Puntuacion, Videojuego
@@ -128,3 +130,47 @@ class CargarDemoTests(TestCase):
             (Jugador.objects.count(), Videojuego.objects.count(), Puntuacion.objects.count()),
             totales,
         )
+
+
+class PuntuacionTests(TestCase):
+    def test_no_se_repite_el_mismo_juego_para_un_jugador(self):
+        jugador = Jugador.objects.create(alias='Nexo', nombre='A', ip='192.0.2.1')
+        juego = Videojuego.objects.create(nombre='Tetris', tipo='Puzle')
+        Puntuacion.objects.create(jugador=jugador, videojuego=juego, puntos=10)
+
+        with self.assertRaises(IntegrityError):
+            Puntuacion.objects.create(jugador=jugador, videojuego=juego, puntos=20)
+
+
+class AdminJugadorTests(TestCase):
+    def setUp(self):
+        admin = User.objects.create_superuser('admin', password='x')
+        self.client.force_login(admin)
+        self.juegos = [Videojuego.objects.create(nombre=f'Juego {i}', tipo='T') for i in range(3)]
+
+    def crear_jugadores(self, cuantos):
+        for i in range(cuantos):
+            jugador = Jugador.objects.create(alias=f'J{Jugador.objects.count()}', nombre='N', ip='192.0.2.1')
+            for juego in self.juegos[:2]:
+                Puntuacion.objects.create(jugador=jugador, videojuego=juego)
+
+    def consultas_del_listado(self):
+        with CaptureQueriesContext(connection) as consultas:
+            respuesta = self.client.get('/admin/main/jugador/')
+        self.assertEqual(respuesta.status_code, 200)
+        return len(consultas)
+
+    def test_el_listado_no_hace_una_consulta_por_jugador(self):
+        self.crear_jugadores(2)
+        con_dos = self.consultas_del_listado()
+
+        self.crear_jugadores(6)
+
+        self.assertEqual(self.consultas_del_listado(), con_dos)
+
+    def test_el_listado_muestra_cuantos_juegos_tiene_cada_jugador(self):
+        self.crear_jugadores(1)
+
+        respuesta = self.client.get('/admin/main/jugador/')
+
+        self.assertContains(respuesta, '<td class="field-total_juegos">2</td>', html=True)
