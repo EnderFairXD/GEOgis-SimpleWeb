@@ -18,7 +18,11 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Definidas aquí para que un .env local (montado con el código) no las sustituya
       DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: GeoDjango
+      DB_USER: postgres
       DB_PASSWORD: postgres
       DJANGO_SECRET_KEY: solo-para-desarrollo-local
       DJANGO_DEBUG: "1"

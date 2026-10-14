@@ -56,8 +56,7 @@ pip install -r requirements.txt
 createdb GeoDjango
 psql -d GeoDjango -c "CREATE EXTENSION postgis;"
 
-cp .env.example .env     # rellena DB_PASSWORD y DJANGO_SECRET_KEY
-export $(grep -v '^#' .env | xargs)
+cp .env.example .env     # rellena DB_PASSWORD y DJANGO_SECRET_KEY (se lee automáticamente)
 
 python manage.py migrate
 python manage.py cargar_demo        # opcional: 15 jugadores y 8 juegos de ejemplo
