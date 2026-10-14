@@ -1,5 +1,7 @@
 # GEOgis
 
+[![Tests](https://github.com/EnderFairXD/GEOgis-SimpleWeb/actions/workflows/tests.yml/badge.svg)](https://github.com/EnderFairXD/GEOgis-SimpleWeb/actions/workflows/tests.yml)
+
 Aplicación web con **GeoDjango**, **PostGIS** y **Leaflet**: muestra en un mapa a los jugadores
 de videojuegos, con su plataforma y su historial de puntuaciones, y permite mover su ubicación
 arrastrando el marcador.
@@ -8,14 +10,17 @@ arrastrando el marcador.
 
 ## Qué hace
 
-- **Mapa** con un marcador por jugador que tenga ubicación.
+- **Mapa** con un marcador por jugador que tenga ubicación. Los marcadores cercanos se agrupan
+  (Leaflet.markercluster) y se separan al acercar el zoom.
 - **Ficha del jugador** al pulsar un marcador: alias, nombre, plataforma y puntuaciones por juego.
+- **Jugadores cercanos** en la ficha: los que están a menos de 250, 500, 1000 o 2000 km,
+  ordenados por distancia. La distancia la calcula PostGIS sobre la esfera terrestre.
 - **Modo arrastrar** (control de Geoman, arriba a la izquierda): al soltar un marcador, la nueva
   posición se guarda en la base de datos. Solo aparece para usuarios con permiso para editar
   jugadores, y el servidor rechaza (403) cualquier otro intento.
 - **Panel de administración** de Django con mapa para editar ubicaciones, y puntuaciones por jugador.
 
-| Ficha del jugador | Modo arrastrar (editor) |
+| Ficha con jugadores cercanos | Modo arrastrar (editor) |
 |---|---|
 | ![Ficha con el historial de puntuaciones](docs/capturas/ficha.jpg) | ![Mapa con el control de arrastrar activo](docs/capturas/arrastrar.jpg) |
 
@@ -67,16 +72,25 @@ python manage.py runserver
 Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para añadir
 jugadores, videojuegos y puntuaciones.
 
+## API
+
+| Método y ruta | Devuelve |
+|---|---|
+| `GET /api/jugadores/` | `FeatureCollection` GeoJSON con los jugadores que tienen ubicación |
+| `GET /api/jugadores/<id>/cercanos/?km=500` | Jugadores a menos de `km` kilómetros, del más cercano al más lejano |
+| `POST /api/jugadores/<id>/ubicacion/` | Guarda `{"lat": …, "lng": …}`. Requiere el permiso `main.change_jugador` |
+
 ## Estructura
 
 | Ruta | Contenido |
 |---|---|
 | `jugadores/` | Configuración del proyecto Django |
 | `main/models.py` | `Jugador` (con `PointField`), `Videojuego` y `Puntuacion` |
-| `main/views.py` | Vista del mapa y endpoint para guardar la ubicación |
-| `main/static/js/Main.js` | Mapa, ficha del jugador y guardado al arrastrar |
+| `main/views.py` | Vista del mapa y endpoints de la API |
+| `main/static/js/Main.js` | Mapa, agrupación, ficha del jugador y guardado al arrastrar |
 | `main/management/commands/cargar_demo.py` | Datos de ejemplo (ficticios) |
-| `main/tests.py` | Tests del mapa, del endpoint y de los datos de ejemplo |
+| `main/tests.py` | Tests de la API, permisos, admin, modelos y datos de ejemplo |
+| `.github/workflows/tests.yml` | CI: tests con PostGIS y arranque completo con Docker Compose |
 
 ## Tests
 

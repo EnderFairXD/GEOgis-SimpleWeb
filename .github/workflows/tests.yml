@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests con PostGIS
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: GeoDjango
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h localhost -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PASSWORD: postgres
+      DJANGO_SECRET_KEY: solo-para-ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Librerías de GeoDjango (GDAL, GEOS, PROJ)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gdal-bin
+      - run: pip install -r requirements.txt
+      - name: Comprobar que no faltan migraciones
+        run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test
+
+  docker:
+    name: Arranque con Docker Compose
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Levantar la app
+        run: docker compose up -d --build
+      - name: Esperar a que responda y comprobar los datos de ejemplo
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8000/ > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8000/api/jugadores/ \
+            | python3 -c "import sys, json; n = len(json.load(sys.stdin)['features']); print(n, 'jugadores'); sys.exit(n != 15)"
+      - name: Tests dentro del contenedor
+        run: docker compose exec -T web python manage.py test
+      - name: Logs si algo falla
+        if: failure()
+        run: docker compose logs
+      - name: Parar
+        if: always()
+        run: docker compose down -v
