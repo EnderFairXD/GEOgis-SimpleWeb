@@ -5,7 +5,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const mapa = L.map(elementoMapa).setView([40, 0], 4);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; colaboradores de OpenStreetMap'
+        attribution: '&copy; colaboradores de OpenStreetMap',
+        // OpenStreetMap bloquea las teselas pedidas sin Referer, y Django por defecto no lo envía
+        // a otros dominios (Referrer-Policy: same-origin). Aquí se manda solo el origen de la web.
+        referrerPolicy: 'strict-origin-when-cross-origin'
     }).addTo(mapa);
 
     // Solo se puede arrastrar: dibujar, editar o borrar no se guardaría en el servidor.
