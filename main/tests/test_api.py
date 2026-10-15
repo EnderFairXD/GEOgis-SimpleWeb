@@ -189,6 +189,7 @@ class CorregirUbicacionTests(TestCase):
         self.assertAlmostEqual(self.estacion.ubicacion.x, -6.08481)
         self.assertAlmostEqual(self.estacion.ubicacion.y, 40.04374)
         self.assertEqual(respuesta.json()['utm']['epsg'], 25829)
+        self.assertTrue(self.estacion.ubicacion_corregida)
 
     def test_coordenadas_fuera_de_rango(self):
         self.client.force_login(crear_editor())

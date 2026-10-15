@@ -156,5 +156,6 @@ def corregir_ubicacion(request, pk):
         return error('No existe la estación', 404)
 
     estacion.ubicacion = Point(lng, lat, srid=4326)
-    estacion.save(update_fields=['ubicacion'])
+    estacion.ubicacion_corregida = True  # al volver a importar no se sustituye
+    estacion.save(update_fields=['ubicacion', 'ubicacion_corregida'])
     return JsonResponse({'status': 'ok', 'utm': coordenadas_utm(estacion.ubicacion)})

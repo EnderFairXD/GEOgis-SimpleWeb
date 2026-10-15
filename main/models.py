@@ -43,6 +43,8 @@ class Estacion(models.Model):
     fecha_baja = models.DateField(null=True, blank=True)
     # Geografía WGS84: PostGIS mide las distancias sobre el elipsoide, exactas en toda España.
     ubicacion = models.PointField(geography=True, srid=4326)
+    ubicacion_corregida = models.BooleanField(
+        default=False, help_text='Corregida a mano: al volver a importar no se sustituye por la del MITECO')
     contaminantes = models.ManyToManyField(Contaminante, related_name='estaciones', blank=True)
 
     class Meta:

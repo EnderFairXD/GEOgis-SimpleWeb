@@ -19,10 +19,16 @@ class MedicionMensualInline(admin.TabularInline):
 @admin.register(Estacion)
 class EstacionAdmin(admin.GISModelAdmin):
     list_display = ('nombre', 'municipio', 'provincia', 'tipo', 'area', 'num_contaminantes')
-    list_filter = ('comunidad', 'tipo', 'area')
+    list_filter = ('comunidad', 'tipo', 'area', 'ubicacion_corregida')
     search_fields = ('nombre', 'municipio', 'codigo', 'codigo_europeo')
     filter_horizontal = ('contaminantes',)
     inlines = [MedicionMensualInline]
+
+    def save_model(self, request, obj, form, change):
+        # Mover la estación en el mapa del admin cuenta como corrección a mano.
+        if 'ubicacion' in form.changed_data:
+            obj.ubicacion_corregida = True
+        super().save_model(request, obj, form, change)
 
     def get_queryset(self, request):
         # Cuenta los contaminantes en la misma consulta del listado (sin una consulta por fila).

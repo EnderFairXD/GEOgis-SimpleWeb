@@ -18,7 +18,11 @@ class Command(BaseCommand):
             if not ruta:
                 self.stdout.write(f'Descargando {URL_METAINFORMACION}')
                 ruta = descargar(URL_METAINFORMACION, carpeta)
-            contaminantes, estaciones = importar_estaciones(ruta)
+            contaminantes, estaciones, conservadas = importar_estaciones(ruta)
 
         self.stdout.write(self.style.SUCCESS(
             f'Importados {contaminantes} contaminantes y {estaciones} estaciones.'))
+        if conservadas:
+            texto = ('Se conserva 1 ubicación corregida a mano.' if conservadas == 1
+                     else f'Se conservan {conservadas} ubicaciones corregidas a mano.')
+            self.stdout.write(texto)

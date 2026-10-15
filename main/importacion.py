@@ -60,7 +60,11 @@ def _filas(hoja):
 
 @transaction.atomic
 def importar_estaciones(ruta):
-    """Carga el catálogo de contaminantes y las estaciones. Devuelve (contaminantes, estaciones)."""
+    """Carga el catálogo de contaminantes y las estaciones.
+
+    Las estaciones con la ubicación corregida a mano conservan su posición; el resto de sus datos
+    sí se actualiza. Devuelve (contaminantes, estaciones, ubicaciones corregidas conservadas).
+    """
     libro = load_workbook(ruta, read_only=True)
     hoja_estaciones = next(h for h in libro.worksheets if h.title.startswith('Estaciones'))
 
@@ -73,9 +77,10 @@ def importar_estaciones(ruta):
         })
         contaminantes += 1
 
-    estaciones = 0
+    corregidas = set(Estacion.objects.filter(ubicacion_corregida=True).values_list('codigo', flat=True))
+    estaciones = conservadas = 0
     for fila in _filas(hoja_estaciones):
-        Estacion.objects.update_or_create(codigo=fila['COD_LOCAL'], defaults={
+        datos = {
             'codigo_europeo': fila['COD_ESTACION_DEM'],
             'nombre': fila['NOMBRE'],
             'direccion': fila['DIRECCION'] or '',
@@ -89,10 +94,14 @@ def importar_estaciones(ruta):
             'fecha_alta': _fecha(fila['FECHA_INI']),
             'fecha_baja': _fecha(fila['FECHA_FIN']),
             'ubicacion': Point(float(fila['LONGITUD_G']), float(fila['LATITUD_G']), srid=4326),
-        })
+        }
+        if fila['COD_LOCAL'] in corregidas:
+            del datos['ubicacion']
+            conservadas += 1
+        Estacion.objects.update_or_create(codigo=fila['COD_LOCAL'], defaults=datos)
         estaciones += 1
 
-    return contaminantes, estaciones
+    return contaminantes, estaciones, conservadas
 
 
 def _sumar_zip(ruta, prefijo):

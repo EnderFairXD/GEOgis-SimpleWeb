@@ -1,9 +1,12 @@
+from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import User
+from django.contrib.gis.geos import Point
 from django.db import IntegrityError, connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
-from main.models import Contaminante, MedicionMensual
+from main.admin import EstacionAdmin
+from main.models import Contaminante, Estacion, MedicionMensual
 
 from .test_api import crear_estacion
 
@@ -52,3 +55,28 @@ class MedicionMensualTests(TestCase):
 
         with self.assertRaises(IntegrityError):
             MedicionMensual.objects.create(estacion=estacion, contaminante=no2, anno=2024, mes=1, media=2, num_datos=1)
+
+
+class AdminUbicacionCorregidaTests(TestCase):
+    """Mover una estación en el mapa del admin la marca como corregida a mano."""
+
+    def guardar(self, estacion, campos_cambiados):
+        formulario = type('Formulario', (), {'changed_data': campos_cambiados})()
+        EstacionAdmin(Estacion, AdminSite()).save_model(None, estacion, formulario, change=True)
+        estacion.refresh_from_db()
+
+    def test_cambiar_la_ubicacion_la_marca_como_corregida(self):
+        estacion = crear_estacion(28079004, 'MADRID', -3.7, 40.4)
+        estacion.ubicacion = Point(-3.71, 40.41, srid=4326)
+
+        self.guardar(estacion, ['ubicacion'])
+
+        self.assertTrue(estacion.ubicacion_corregida)
+
+    def test_cambiar_otros_campos_no_la_marca(self):
+        estacion = crear_estacion(28079004, 'MADRID', -3.7, 40.4)
+        estacion.nombre = 'OTRO NOMBRE'
+
+        self.guardar(estacion, ['nombre'])
+
+        self.assertFalse(estacion.ubicacion_corregida)

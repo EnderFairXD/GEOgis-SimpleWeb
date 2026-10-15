@@ -2,6 +2,7 @@ import datetime
 import tempfile
 from io import StringIO
 
+from django.contrib.gis.geos import Point
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -20,7 +21,9 @@ class ImportarEstacionesTests(TestCase):
 
     def importar(self, estaciones):
         ruta = ficheros.excel_metainformacion(self.carpeta.name, estaciones)
-        call_command('importar_estaciones', fichero=str(ruta), stdout=StringIO())
+        salida = StringIO()
+        call_command('importar_estaciones', fichero=str(ruta), stdout=salida)
+        return salida.getvalue()
 
     def test_crea_las_estaciones_con_sus_datos(self):
         self.importar([
@@ -52,6 +55,25 @@ class ImportarEstacionesTests(TestCase):
         ])
 
         self.assertEqual(Estacion.objects.get(codigo=MADRID).fecha_baja, datetime.date(2024, 6, 30))
+
+    def test_respeta_las_ubicaciones_corregidas_a_mano(self):
+        self.importar([ficheros.estacion(MADRID, 'NOMBRE VIEJO', 40.4, -3.7)])
+        Estacion.objects.filter(codigo=MADRID).update(ubicacion=Point(-3.65, 40.45, srid=4326),
+                                                      ubicacion_corregida=True)
+
+        self.importar([ficheros.estacion(MADRID, 'NOMBRE NUEVO', 40.4, -3.7)])
+
+        e = Estacion.objects.get(codigo=MADRID)
+        self.assertEqual(e.nombre, 'NOMBRE NUEVO')  # el resto de datos sí se actualiza
+        self.assertEqual((e.ubicacion.x, e.ubicacion.y), (-3.65, 40.45))
+
+    def test_dice_cuantas_ubicaciones_corregidas_conserva(self):
+        self.importar([ficheros.estacion(MADRID, 'MADRID', 40.4, -3.7)])
+        Estacion.objects.update(ubicacion_corregida=True)
+
+        salida = self.importar([ficheros.estacion(MADRID, 'MADRID', 40.4, -3.7)])
+
+        self.assertIn('1 ubicación corregida a mano', salida)
 
     def test_importar_otra_vez_actualiza_sin_duplicar(self):
         self.importar([ficheros.estacion(MADRID, 'NOMBRE VIEJO', 40.4, -3.7)])
