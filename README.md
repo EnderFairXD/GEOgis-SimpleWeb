@@ -19,6 +19,8 @@ estaciones que tiene alrededor. Con los 8.131 municipios de España analiza adem
   y las medias mensuales de 2024 de cada contaminante que mide. Las medias horarias calculadas con
   menos del 75 % de las horas del mes se marcan como poco fiables, y cada mes indica con cuántas
   horas o días se calculó.
+- **Límites legales**: un gráfico con las medias mensuales, la media anual y los valores límite
+  anuales actuales y los de 2030, y si la estación los cumple.
 - **Estaciones cercanas** a 10, 25, 50 o 100 km, ordenadas por distancia geodésica.
 - **Corrección de ubicaciones**: los usuarios con permiso pueden arrastrar una estación en el mapa
   (modo arrastrar de Geoman) o moverla en el admin, y la nueva posición se guarda. El servidor
@@ -35,6 +37,50 @@ estaciones que tiene alrededor. Con los 8.131 municipios de España analiza adem
 | Ficha de una estación | Canarias |
 |---|---|
 | ![Ficha de Escuelas Aguirre con las medias mensuales de NO2](docs/capturas/ficha.jpg) | ![Estaciones de las Islas Canarias](docs/capturas/canarias.jpg) |
+
+## Límites legales
+
+![Gráfico de medias mensuales de PM10 con la media anual y los límites](docs/capturas/limites.jpg)
+
+La ficha compara la media anual de cada contaminante con su **límite anual**: el vigente
+(Real Decreto 102/2011) y el que se aplicará desde 2030 (Directiva (UE) 2024/2881).
+
+| Contaminante | Ahora | Desde 2030 |
+|---|---|---|
+| NO2 | 40 µg/m³ | 20 µg/m³ |
+| PM10 | 40 µg/m³ | 20 µg/m³ |
+| PM2.5 | 25 µg/m³ | 10 µg/m³ |
+| SO2 | sin límite anual | 20 µg/m³ |
+| Benceno | 5 µg/m³ | 3,4 µg/m³ |
+| Plomo | 0,5 µg/m³ | 0,5 µg/m³ |
+| Arsénico, cadmio, níquel, benzo(a)pireno | 6, 5, 20 y 1 ng/m³ (valores objetivo) | los mismos, como valores límite |
+
+Criterios, tomados del RD 102/2011:
+
+- La media anual se calcula con las medias mensuales ponderadas por sus datos, así que coincide
+  con la media de todos los valores del año.
+- Solo se compara si tiene **al menos el 90 % de los valores horarios** del año (criterios de
+  agregación). Las que salen de captadores manuales se comparan si llegan al **14 % de los días**,
+  la periodicidad mínima de las mediciones indicativas, y se presentan como orientativas.
+- Solo se usan los límites anuales: los horarios, octohorarios y diarios cuentan superaciones hora
+  a hora o día a día y no se pueden evaluar con medias mensuales. Por eso el ozono y el monóxido de
+  carbono no se comparan.
+- Es la media bruta. La evaluación oficial descuenta los aportes naturales, como el polvo del
+  Sáhara, así que una estación puede superar aquí un límite de partículas sin incumplirlo.
+
+En 2024, entre las estaciones activas con media anual válida:
+
+| Contaminante | Estaciones evaluadas | Superan el límite actual | Superarían el de 2030 |
+|---|---|---|---|
+| NO2 | 473 | 0 | 69 |
+| PM10 | 433 | 3 | 163 |
+| PM2.5 | 288 | 0 | 92 |
+| Arsénico | 95 | 1 | 1 |
+| SO2, benceno, plomo, cadmio, níquel, benzo(a)pireno | 74–373 | 0 | 0 |
+
+Las tres de PM10 son estaciones industriales: Matadero (Avilés), La Grama (Breña Alta) y El Médano
+(Granadilla de Abona); en las dos de Canarias pesa el polvo sahariano. La de arsénico es La Rábida
+(Palos de la Frontera, Huelva), con una media orientativa.
 
 ## Cobertura
 
@@ -177,8 +223,9 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 | Método y ruta | Devuelve |
 |---|---|
 | `GET /api/estaciones/` | `FeatureCollection` GeoJSON con las estaciones activas (sin mediciones, para que el mapa cargue rápido) |
-| `GET /api/estaciones/<id>/` | Ficha: datos, coordenadas WGS84 y UTM, y medias mensuales por contaminante |
+| `GET /api/estaciones/<id>/` | Ficha: datos, coordenadas WGS84 y UTM, medias mensuales, media anual y comparación con los límites por contaminante |
 | `GET /api/estaciones/<id>/cercanas/?km=25` | Estaciones activas a menos de `km` kilómetros (hasta 1000), de la más cercana a la más lejana |
+| `GET /api/limites/?anno=2024` | Por contaminante, cuántas estaciones activas con media anual válida superan cada límite anual |
 | `GET /api/cobertura/?km=10` | Población y municipios con una estación a menos de `km` kilómetros, en total y por provincia |
 | `GET /api/municipios/?bbox=oeste,sur,este,norte` | Municipios de la zona visible (simplificados, como GeoJSON) con la distancia a su estación más cercana |
 | `POST /api/estaciones/<id>/ubicacion/` | Guarda `{"lat": …, "lng": …}` (dentro de España) y devuelve las nuevas coordenadas UTM. Requiere el permiso `main.change_estacion` |
@@ -190,13 +237,14 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 | `geogis/` | Configuración del proyecto Django |
 | `main/models.py` | `Estacion` (`PointField` geography), `Contaminante`, `MedicionMensual` y `Municipio` |
 | `main/geo.py` | Huso y coordenadas UTM oficiales de cada punto de España |
+| `main/limites.py` | Límites anuales del RD 102/2011 y de la Directiva (UE) 2024/2881, y cálculo de la media anual |
 | `main/cobertura.py` | Distancia de cada municipio a la estación más cercana (KNN de PostGIS) |
 | `main/ine.py` | Nombres de las provincias por código INE |
 | `main/importacion.py` | Lectura de los ficheros del MITECO y de GISCO, medias mensuales y unión espacial |
 | `main/management/commands/` | Comandos `importar_estaciones`, `importar_mediciones` e `importar_municipios` |
 | `main/views.py` | Vista del mapa y endpoints de la API |
 | `main/static/js/Main.js` | Mapa, agrupación, ficha de la estación y corrección de ubicaciones |
-| `main/tests/` | Tests de coordenadas, importación, cobertura, API, permisos y admin |
+| `main/tests/` | Tests de coordenadas, importación, límites, cobertura, API, permisos y admin |
 | `.github/workflows/tests.yml` | CI: tests con PostGIS y arranque completo con Docker Compose |
 
 ## Tests
