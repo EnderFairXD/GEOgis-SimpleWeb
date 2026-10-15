@@ -11,4 +11,5 @@ urlpatterns = [
     path('api/cobertura/', views.cobertura, name='cobertura'),
     path('api/municipios/', views.municipios_geojson, name='municipios_geojson'),
     path('api/limites/', views.resumen_limites, name='resumen_limites'),
+    path('api/simulacion/', views.simular_estacion, name='simular_estacion'),
 ]

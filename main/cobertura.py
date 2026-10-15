@@ -34,3 +34,41 @@ def distancias_a_la_estacion_mas_cercana(municipios=None):
     with connection.cursor() as cursor:
         cursor.execute(consulta, parametros)
         return dict(cursor.fetchall())
+
+
+def municipios_a_menos_de(punto, km):
+    """Ids de los municipios cuyo término queda a menos de `km` del punto (sobre el elipsoide).
+
+    El primer filtro (`&&` con un rectángulo ampliado) usa el índice espacial; en España un grado
+    mide al menos unos 80 km, así que km/60 grados de margen nunca deja fuera a ningún candidato.
+    """
+    consulta = f'''
+        SELECT id FROM {Municipio._meta.db_table}
+        WHERE geometria && ST_Expand(ST_GeomFromEWKT(%s), %s)
+          AND ST_DWithin(geometria::geography, ST_GeogFromText(%s), %s)
+    '''
+    with connection.cursor() as cursor:
+        cursor.execute(consulta, [punto.ewkt, km / 60, punto.ewkt, km * 1000])
+        return [fila[0] for fila in cursor.fetchall()]
+
+
+def simular_estacion(punto, km):
+    """Población que quedaría cubierta a `km` si hubiera una estación más en `punto`.
+
+    Devuelve la población cubierta antes y después, y los ids de los municipios que pasarían a
+    estarlo con la distancia que tienen hoy a su estación más cercana.
+    """
+    distancias = distancias_a_la_estacion_mas_cercana()
+    poblaciones = dict(Municipio.objects.values_list('pk', 'poblacion'))
+
+    def cubierto(pk):
+        return distancias.get(pk) is not None and distancias[pk] <= km
+
+    nuevos = [pk for pk in municipios_a_menos_de(punto, km) if not cubierto(pk)]
+    antes = sum(poblacion for pk, poblacion in poblaciones.items() if cubierto(pk))
+    return {
+        'poblacion_total': sum(poblaciones.values()),
+        'poblacion_antes': antes,
+        'poblacion_despues': antes + sum(poblaciones[pk] for pk in nuevos),
+        'nuevos': {pk: distancias.get(pk) for pk in nuevos},
+    }

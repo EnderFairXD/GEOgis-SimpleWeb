@@ -10,7 +10,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from .cobertura import distancias_a_la_estacion_mas_cercana
+from .cobertura import distancias_a_la_estacion_mas_cercana, simular_estacion as calcular_simulacion
 from .geo import coordenadas_utm
 from .ine import PROVINCIAS
 from .limites import LIMITES_ANUALES, SIN_LIMITE_ANUAL, media_anual, redondear
@@ -43,8 +43,20 @@ def leer_radio(request, por_defecto):
     return km if 0 < km <= RADIO_MAXIMO_KM else None
 
 
-def porcentaje(parte, total):
-    return round(100 * parte / total, 1) if total else 0.0
+def porcentaje(parte, total, decimales=1):
+    return round(100 * parte / total, decimales) if total else 0.0
+
+
+def punto_en_espana(lat, lng):
+    """Point WGS84 si las coordenadas son números dentro de España; si no, None."""
+    try:
+        lat, lng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return None
+    if not (LIMITES_ESPANA['lat'][0] <= lat <= LIMITES_ESPANA['lat'][1]
+            and LIMITES_ESPANA['lng'][0] <= lng <= LIMITES_ESPANA['lng'][1]):
+        return None
+    return Point(lng, lat, srid=4326)
 
 
 @ensure_csrf_cookie
@@ -206,13 +218,12 @@ def corregir_ubicacion(request, pk):
 
     try:
         datos = json.loads(request.body)
-        lat = float(datos['lat'])
-        lng = float(datos['lng'])
+        lat, lng = float(datos['lat']), float(datos['lng'])
     except (ValueError, KeyError, TypeError):
         return error('Datos no válidos', 400)
 
-    if not (LIMITES_ESPANA['lat'][0] <= lat <= LIMITES_ESPANA['lat'][1]
-            and LIMITES_ESPANA['lng'][0] <= lng <= LIMITES_ESPANA['lng'][1]):
+    punto = punto_en_espana(lat, lng)
+    if punto is None:
         return error('La ubicación está fuera de España', 400)
 
     try:
@@ -220,7 +231,7 @@ def corregir_ubicacion(request, pk):
     except Estacion.DoesNotExist:
         return error('No existe la estación', 404)
 
-    estacion.ubicacion = Point(lng, lat, srid=4326)
+    estacion.ubicacion = punto
     estacion.ubicacion_corregida = True  # al volver a importar no se sustituye
     estacion.save(update_fields=['ubicacion', 'ubicacion_corregida'])
     return JsonResponse({'status': 'ok', 'utm': coordenadas_utm(estacion.ubicacion)})
@@ -334,3 +345,58 @@ def resumen_limites(request):
             ],
         })
     return JsonResponse({'anno': anno, 'contaminantes': resumen})
+
+
+@require_GET
+def simular_estacion(request):
+    """¿Qué pasaría con una estación más en ?lat=&lng=? Municipio, estaciones reales más cercanas
+    y población que pasaría a tener una estación a menos de ?km= (10 por defecto). No guarda nada."""
+    punto = punto_en_espana(request.GET.get('lat'), request.GET.get('lng'))
+    if punto is None:
+        return error('Indica lat y lng de un punto de España', 400)
+    km = leer_radio(request, RADIO_COBERTURA_POR_DEFECTO_KM)
+    if km is None:
+        return error(f'El radio debe estar entre 0 y {RADIO_MAXIMO_KM} km', 400)
+
+    municipio = Municipio.objects.filter(geometria__contains=punto).first()
+    cercanas = estaciones_activas().annotate(distancia=Distance('ubicacion', punto)).order_by('distancia')[:5]
+    simulacion = calcular_simulacion(punto, km)
+    nuevos = (Municipio.objects.filter(pk__in=simulacion['nuevos'])
+              .annotate(forma=AsGeoJSON('geometria_mapa', precision=5))
+              .order_by('-poblacion', 'nombre'))
+
+    def km_o_nada(distancia):
+        return None if distancia is None else round(distancia, 1)
+
+    return JsonResponse({
+        'ubicacion': {'lat': punto.y, 'lng': punto.x, 'utm': coordenadas_utm(punto)},
+        'municipio': municipio and {'codigo': municipio.codigo, 'nombre': municipio.nombre,
+                                    'provincia': municipio.provincia},
+        'cercanas': [
+            {'id': e.pk, 'nombre': e.nombre, 'municipio': e.municipio, 'distancia_km': round(e.distancia.km, 2)}
+            for e in cercanas
+        ],
+        'cobertura': {
+            'radio_km': km,
+            'poblacion_nueva': simulacion['poblacion_despues'] - simulacion['poblacion_antes'],
+            # Dos decimales: una estación suma como mucho unas décimas a la cobertura nacional
+            'porcentaje_antes': porcentaje(simulacion['poblacion_antes'], simulacion['poblacion_total'], 2),
+            'porcentaje_despues': porcentaje(simulacion['poblacion_despues'], simulacion['poblacion_total'], 2),
+        },
+        'municipios_nuevos': {
+            'type': 'FeatureCollection',
+            'features': [
+                {
+                    'type': 'Feature',
+                    'geometry': json.loads(m.forma),
+                    'properties': {
+                        'codigo': m.codigo,
+                        'nombre': m.nombre,
+                        'poblacion': m.poblacion,
+                        'distancia_actual_km': km_o_nada(simulacion['nuevos'][m.pk]),
+                    },
+                }
+                for m in nuevos
+            ],
+        },
+    })

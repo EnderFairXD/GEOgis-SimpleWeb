@@ -218,3 +218,30 @@ footer p {
 
 .ficha-veredicto .cumple { color: #1a7f37; }
 .ficha-veredicto .supera { color: #b42318; }
+
+/* Estación simulada */
+.panel-simulacion {
+    width: 17rem;
+    margin-top: 0.5rem;
+    padding: 0.4rem;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    font-size: 0.85rem;
+}
+
+.panel-simulacion .cuerpo {
+    padding: 0.5rem 0.25rem 0;
+}
+
+.estacion-simulada {
+    background: #fff;
+    border: 3px dashed #333;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fff;
+    cursor: grab;
+}
+
+#mi_mapa.simulando {
+    cursor: crosshair;
+}

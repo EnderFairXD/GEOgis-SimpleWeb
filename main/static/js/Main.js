@@ -625,6 +625,152 @@ document.addEventListener('DOMContentLoaded', function () {
 
     mapa.on('moveend', cargarMunicipios);
 
+    // ---- Estación simulada: ¿cuánta población cubriría una estación más en este punto? ----
+
+    const simulacion = { activa: false, radio: 10, marcador: null, circulo: null, municipios: null, peticion: 0 };
+
+    const controlSimulacion = L.control({ position: 'topright' });
+    controlSimulacion.onAdd = function () {
+        const caja = L.DomUtil.create('div', 'panel-simulacion');
+        caja.innerHTML =
+            '<button type="button" class="btn btn-sm btn-light w-100" aria-pressed="false">Simular una estación</button>' +
+            '<div class="cuerpo" hidden>' +
+            '  <label class="d-flex align-items-center gap-2 mb-2">Radio' +
+            '    <select class="form-select form-select-sm w-auto">' +
+            '      <option value="10" selected>10 km</option><option value="25">25 km</option><option value="50">50 km</option>' +
+            '    </select></label>' +
+            '  <div class="resultado" aria-live="polite"><p class="mb-0">Pulsa en el mapa para colocar una estación. Después puedes arrastrarla.</p></div>' +
+            '</div>';
+        L.DomEvent.disableClickPropagation(caja);
+        L.DomEvent.disableScrollPropagation(caja);
+        return caja;
+    };
+    controlSimulacion.addTo(mapa);
+
+    const panelSimulacion = controlSimulacion.getContainer();
+    const botonSimulacion = panelSimulacion.querySelector('button');
+    const resultadoSimulacion = panelSimulacion.querySelector('.resultado');
+
+    function parrafo(texto, clase) {
+        const p = document.createElement('p');
+        p.className = clase || 'mb-2';
+        p.textContent = texto;
+        return p;
+    }
+
+    function quitarCapasSimulacion() {
+        ['circulo', 'municipios'].forEach(function (clave) {
+            if (simulacion[clave]) {
+                mapa.removeLayer(simulacion[clave]);
+                simulacion[clave] = null;
+            }
+        });
+    }
+
+    function pintarSimulacion(d) {
+        const c = d.cobertura;
+        const nuevos = d.municipios_nuevos.features;
+        const utm = d.ubicacion.utm;
+        const partes = [];
+
+        partes.push(parrafo(d.municipio
+            ? 'Cae en ' + d.municipio.nombre + ' (' + d.municipio.provincia + '). UTM huso ' + utm.huso +
+              ': X ' + numero(utm.x, 0) + ' m, Y ' + numero(utm.y, 0) + ' m.'
+            : 'El punto no cae en ningún municipio.'));
+        if (d.cercanas.length) {
+            partes.push(parrafo('Estación real más cercana: ' + d.cercanas[0].nombre + ' (' + d.cercanas[0].municipio +
+                '), a ' + numero(d.cercanas[0].distancia_km, 1) + ' km.'));
+        }
+        partes.push(parrafo(c.poblacion_nueva > 0
+            ? 'Con un radio de ' + c.radio_km + ' km cubriría a ' + numero(c.poblacion_nueva, 0) + ' habitantes más en ' +
+              nuevos.length + (nuevos.length === 1 ? ' municipio' : ' municipios') + ': la población cubierta pasaría del ' +
+              numero(c.porcentaje_antes, 2) + ' % al ' + numero(c.porcentaje_despues, 2) + ' %.'
+            : 'No cubriría a nadie más: los municipios a menos de ' + c.radio_km + ' km ya tienen una estación a esa distancia.',
+            'mb-2 fw-semibold'));
+        if (nuevos.length) {
+            const lista = document.createElement('ul');
+            lista.className = 'list-unstyled small mb-0';
+            nuevos.slice(0, 5).forEach(function (f) {
+                const p = f.properties;
+                lista.appendChild(celda('li', p.nombre + ': ' + numero(p.poblacion, 0) + ' hab.' +
+                    (p.distancia_actual_km === null ? '' : ', hoy a ' + numero(p.distancia_actual_km, 1) + ' km')));
+            });
+            if (nuevos.length > 5) lista.appendChild(celda('li', 'y ' + (nuevos.length - 5) + ' más'));
+            partes.push(lista);
+        }
+        resultadoSimulacion.replaceChildren(...partes);
+
+        // Municipios que pasarían a estar cubiertos, en el mismo azul que «cubierto» en la cobertura
+        quitarCapasSimulacion();
+        simulacion.municipios = L.geoJSON(d.municipios_nuevos, {
+            pmIgnore: true,
+            style: { color: '#104281', weight: 1, fillColor: TRAMOS_COBERTURA[0].color, fillOpacity: 0.6 },
+            onEachFeature: function (f, capa) {
+                capa.bindTooltip(f.properties.nombre + ': ' + numero(f.properties.poblacion, 0) + ' hab. pasarían a estar cubiertos',
+                    { sticky: true });
+            }
+        }).addTo(mapa);
+        simulacion.circulo = L.circle(simulacion.marcador.getLatLng(), {
+            radius: c.radio_km * 1000, pmIgnore: true, interactive: false,
+            color: '#333333', weight: 1.5, dashArray: '6 4', fill: false
+        }).addTo(mapa);
+    }
+
+    function simular() {
+        if (!simulacion.marcador) return;
+        const punto = simulacion.marcador.getLatLng();
+        const peticion = ++simulacion.peticion;
+        resultadoSimulacion.replaceChildren(parrafo('Calculando…', 'mb-0'));
+        pedirJson('/api/simulacion/?lat=' + punto.lat + '&lng=' + punto.lng + '&km=' + simulacion.radio).then(function (datos) {
+            if (peticion === simulacion.peticion && simulacion.activa) pintarSimulacion(datos);
+        }).catch(function (error) {
+            if (peticion !== simulacion.peticion) return;
+            quitarCapasSimulacion();
+            resultadoSimulacion.replaceChildren(parrafo(error.estado === 400 && error.mensaje
+                ? error.mensaje + '.' : 'No se pudo hacer la simulación. Prueba otra vez.', 'mb-0'));
+        });
+    }
+
+    function colocarEstacionSimulada(latlng) {
+        if (!simulacion.marcador) {
+            simulacion.marcador = L.marker(latlng, {
+                draggable: true, pmIgnore: true, zIndexOffset: 1000,
+                title: 'Estación simulada (arrástrala para moverla)', alt: 'Estación simulada',
+                icon: L.divIcon({ className: 'estacion-simulada', iconSize: [22, 22] })
+            }).addTo(mapa);
+            simulacion.marcador.on('dragend', simular);
+        } else {
+            simulacion.marcador.setLatLng(latlng);
+        }
+        simular();
+    }
+
+    mapa.on('click', function (evento) {
+        if (simulacion.activa) colocarEstacionSimulada(evento.latlng);
+    });
+
+    botonSimulacion.addEventListener('click', function () {
+        simulacion.activa = !simulacion.activa;
+        botonSimulacion.setAttribute('aria-pressed', String(simulacion.activa));
+        botonSimulacion.textContent = simulacion.activa ? 'Quitar la estación simulada' : 'Simular una estación';
+        panelSimulacion.querySelector('.cuerpo').hidden = !simulacion.activa;
+        elementoMapa.classList.toggle('simulando', simulacion.activa);
+        if (!simulacion.activa) {
+            simulacion.peticion++;
+            quitarCapasSimulacion();
+            if (simulacion.marcador) {
+                mapa.removeLayer(simulacion.marcador);
+                simulacion.marcador = null;
+            }
+            resultadoSimulacion.replaceChildren(parrafo('Pulsa en el mapa para colocar una estación. Después puedes arrastrarla.', 'mb-0'));
+        }
+    });
+
+    panelSimulacion.querySelector('select').addEventListener('change', function (evento) {
+        simulacion.radio = Number(evento.target.value);
+        simular();
+    });
+
     pedirJson(elementoMapa.dataset.urlEstaciones).then(pintarEstaciones).catch(function (error) {
         console.error('No se pudieron cargar las estaciones:', error);
         alert('No se pudieron cargar las estaciones. Prueba a recargar la página.');
