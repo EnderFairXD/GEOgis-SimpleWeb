@@ -118,6 +118,16 @@ document.addEventListener('DOMContentLoaded', function () {
         return valor.toLocaleString('es-ES', { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
     }
 
+    // Un decimal desde 1 y tres por debajo: los metales se miden en centésimas de ng/m³.
+    function medida(valor) {
+        return numero(valor, Math.abs(valor) >= 1 ? 1 : 3);
+    }
+
+    // Un límite legal se muestra con decimales solo si los tiene (40 µg/m³, pero 3,4 µg/m³).
+    function valorLimite(valor) {
+        return numero(valor, Number.isInteger(valor) ? 0 : 1);
+    }
+
     function grados(valor, positivo, negativo) {
         return numero(Math.abs(valor), 5) + '° ' + (valor >= 0 ? positivo : negativo);
     }
@@ -153,6 +163,148 @@ document.addEventListener('DOMContentLoaded', function () {
         return elemento;
     }
 
+    // ---- Gráfico de medias mensuales con la media anual y los límites legales anuales ----
+
+    const SVG = 'http://www.w3.org/2000/svg';
+    const COLOR_MES = '#2a78d6';
+    const COLOR_MES_POCOS_DATOS = '#9ec5f4';
+    const COLOR_MEDIA_ANUAL = '#104281';
+    const COLOR_LIMITE = '#333333';
+
+    function elementoSvg(etiqueta, atributos, padre) {
+        const e = document.createElementNS(SVG, etiqueta);
+        Object.keys(atributos).forEach(function (k) { e.setAttribute(k, atributos[k]); });
+        if (padre) padre.appendChild(e);
+        return e;
+    }
+
+    // Paso "redondo" para el eje: 1, 2, 2,5 o 5 por una potencia de 10.
+    function pasoEje(maximo, marcas) {
+        const bruto = maximo / marcas;
+        const potencia = Math.pow(10, Math.floor(Math.log10(bruto)));
+        const paso = [1, 2, 2.5, 5, 10].map(function (m) { return m * potencia; }).find(function (p) { return p >= bruto; });
+        return paso;
+    }
+
+    // Barra con la parte superior redondeada (4 px) y la base recta.
+    function rutaBarra(x, y, ancho, base) {
+        const r = Math.min(4, ancho / 2, base - y);
+        return 'M' + x + ',' + base + 'V' + (y + r) + 'Q' + x + ',' + y + ' ' + (x + r) + ',' + y +
+            'H' + (x + ancho - r) + 'Q' + (x + ancho) + ',' + y + ' ' + (x + ancho) + ',' + (y + r) + 'V' + base + 'Z';
+    }
+
+    // Líneas de referencia: la media anual y los límites (los de igual valor se dibujan una vez).
+    function referencias(c) {
+        const lineas = [];
+        if (c.anual) {
+            lineas.push({ valor: c.anual.media, texto: 'Media ' + c.anual.anno + ': ' + medida(c.anual.media), media: true });
+        }
+        c.limites.forEach(function (l) {
+            if (lineas.some(function (r) { return !r.media && r.valor === l.valor; })) return;
+            lineas.push({ valor: l.valor, texto: (l.desde >= 2030 ? 'Límite ' + l.desde : 'Límite actual') + ': ' + valorLimite(l.valor) });
+        });
+        return lineas;
+    }
+
+    function pintarGrafico(c) {
+        const contenedor = document.getElementById('fichaGrafico');
+        contenedor.replaceChildren();
+        if (!c || c.mediciones.length === 0) return;
+
+        const ancho = 640, alto = 220, izquierda = 44, derecha = 132, arriba = 10, abajo = 24;
+        const base = alto - abajo, banda = (ancho - izquierda - derecha) / 12;
+        const lineas = referencias(c);
+        const maximo = Math.max.apply(null, c.mediciones.map(function (m) { return m.media; })
+            .concat(lineas.map(function (l) { return l.valor; }))) * 1.1 || 1;
+        const paso = pasoEje(maximo, 4);
+        const tope = Math.ceil(maximo / paso) * paso;
+        const y = function (v) { return base - (v / tope) * (base - arriba); };
+        const unidad = c.unidad.replace('m3', 'm³');
+
+        const svg = elementoSvg('svg', {
+            viewBox: '0 0 ' + ancho + ' ' + alto, role: 'img',
+            'aria-label': 'Medias mensuales de ' + c.abreviatura + ' en ' + unidad + ', con la media anual y los límites anuales'
+        }, contenedor);
+
+        // Rejilla y eje Y (líneas finas y continuas, en segundo plano)
+        for (let v = 0; v <= tope + paso / 2; v += paso) {
+            elementoSvg('line', { x1: izquierda, x2: ancho - derecha, y1: y(v), y2: y(v), class: 'rejilla' }, svg);
+            elementoSvg('text', { x: izquierda - 6, y: y(v) + 4, class: 'eje', 'text-anchor': 'end' }, svg).textContent = numero(v, paso < 1 ? 1 : 0);
+        }
+
+        // Barras de los meses con su texto emergente
+        const porMes = {};
+        c.mediciones.forEach(function (m) { porMes[m.mes] = m; });
+        MESES.forEach(function (nombre, i) {
+            const centro = izquierda + banda * (i + 0.5);
+            elementoSvg('text', { x: centro, y: alto - 6, class: 'eje', 'text-anchor': 'middle' }, svg).textContent = nombre;
+            const m = porMes[i + 1];
+            if (!m) return;
+            const grosor = Math.min(24, banda * 0.6);
+            const barra = elementoSvg('path', {
+                d: rutaBarra(centro - grosor / 2, y(m.media), grosor, base),
+                fill: m.pocos_datos ? COLOR_MES_POCOS_DATOS : COLOR_MES, class: 'barra'
+            }, svg);
+            elementoSvg('title', {}, barra).textContent = nombre + ': ' + medida(m.media) + ' ' + unidad + '. ' + explicarMedia(m);
+        });
+
+        // Líneas de referencia con su etiqueta a la derecha (separadas si quedan muy juntas)
+        let ultimaEtiqueta = -Infinity;
+        lineas.slice().sort(function (a, b) { return b.valor - a.valor; }).forEach(function (l) {
+            elementoSvg('line', {
+                x1: izquierda, x2: ancho - derecha + 6, y1: y(l.valor), y2: y(l.valor),
+                stroke: l.media ? COLOR_MEDIA_ANUAL : COLOR_LIMITE, class: l.media ? 'linea-media' : 'linea-limite'
+            }, svg);
+            const yEtiqueta = Math.max(y(l.valor) + 4, ultimaEtiqueta + 13);
+            ultimaEtiqueta = yEtiqueta;
+            elementoSvg('text', { x: ancho - derecha + 10, y: yEtiqueta, class: 'etiqueta-linea' }, svg).textContent = l.texto;
+        });
+    }
+
+    // Comparación de la media anual con cada límite, con icono y texto.
+    function pintarVeredicto(c) {
+        const lista = document.getElementById('fichaVeredicto');
+        lista.replaceChildren();
+        if (!c) return;
+        const unidad = c.unidad.replace('m3', 'm³');
+        const anual = c.anual;
+        const nota = function (texto) {
+            const li = document.createElement('li');
+            li.className = 'text-muted small';
+            li.textContent = texto;
+            lista.appendChild(li);
+        };
+
+        if (c.limites.length === 0) {
+            if (c.sin_limite_anual) nota(c.sin_limite_anual);
+            return;
+        }
+        if (!anual) return;
+        if (!anual.valida) {
+            nota('No se compara con los límites: la media de ' + anual.anno + ' solo tiene el ' + Math.round(anual.cobertura * 100) +
+                ' % de ' + (anual.orientativa ? 'los días (hace falta al menos el 14 %).' : 'las horas (hace falta al menos el 90 %).'));
+            return;
+        }
+        c.limites.forEach(function (l) {
+            const li = document.createElement('li');
+            const icono = document.createElement('span');
+            icono.className = 'icono ' + (l.supera ? 'supera' : 'cumple');
+            icono.setAttribute('aria-hidden', 'true');
+            icono.textContent = l.supera ? '✕' : '✓';
+            li.appendChild(icono);
+            li.appendChild(document.createTextNode(
+                (l.supera ? 'Por encima del ' : 'Por debajo del ') + l.tipo + ' anual de ' + valorLimite(l.valor) + ' ' + unidad +
+                (l.desde >= 2030 ? ', que se aplicará desde ' + l.desde : '') + ' (' + l.norma + ').'));
+            lista.appendChild(li);
+        });
+        if (anual.orientativa) {
+            nota('Media orientativa: sale de un captador manual que muestreó el ' + Math.round(anual.cobertura * 100) + ' % de los días.');
+        }
+        if (['PM10', 'PM2.5'].includes(c.abreviatura)) {
+            nota('Es la media bruta: la evaluación oficial descuenta los aportes naturales, como el polvo del Sáhara.');
+        }
+    }
+
     // Con cuántos datos se calculó una media, para el texto emergente de cada mes.
     function explicarMedia(m) {
         if (m.periodicidad === 'DIARIA') {
@@ -172,12 +324,14 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('fichaMesesValores').replaceChildren(...MESES.map(function (_, i) {
             const m = porMes[i + 1];
             if (!m) return celda('td', '—');
-            const td = celda('td', numero(m.media, 1) + (m.pocos_datos ? '*' : ''));
+            const td = celda('td', medida(m.media) + (m.pocos_datos ? '*' : ''));
             td.title = explicarMedia(m);
             if (m.pocos_datos) td.className = 'pocos-datos';
             return td;
         }));
         ficha.notaPocosDatos.hidden = !Object.values(porMes).some(function (m) { return m.pocos_datos; });
+        pintarGrafico(contaminante);
+        pintarVeredicto(contaminante);
     }
 
     function pintarDetalle(d) {

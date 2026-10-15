@@ -4,6 +4,7 @@ from collections import defaultdict
 from django.contrib.gis.db.models.functions import AsGeoJSON, Distance
 from django.contrib.gis.geos import Point, Polygon
 from django.contrib.gis.measure import D
+from django.db.models import Max
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -12,7 +13,8 @@ from django.views.decorators.http import require_GET, require_POST
 from .cobertura import distancias_a_la_estacion_mas_cercana
 from .geo import coordenadas_utm
 from .ine import PROVINCIAS
-from .models import Estacion, Municipio
+from .limites import LIMITES_ANUALES, SIN_LIMITE_ANUAL, media_anual, redondear
+from .models import Contaminante, Estacion, MedicionMensual, Municipio
 
 PERMISO_EDITAR = 'main.change_estacion'
 RADIO_POR_DEFECTO_KM = 25
@@ -95,17 +97,9 @@ def detalle_estacion(request, pk):
     except Estacion.DoesNotExist:
         return error('No existe la estación', 404)
 
-    medias = defaultdict(list)
+    mediciones = defaultdict(list)
     for m in estacion.mediciones.order_by('anno', 'mes'):
-        medias[m.contaminante_id].append({
-            'anno': m.anno,
-            'mes': m.mes,
-            'media': round(m.media, 1),
-            'periodicidad': m.periodicidad,
-            'num_datos': m.num_datos,
-            'cobertura': round(m.cobertura, 2),
-            'pocos_datos': m.pocos_datos,
-        })
+        mediciones[m.contaminante_id].append(m)
 
     return JsonResponse({
         'id': estacion.pk,
@@ -127,15 +121,48 @@ def detalle_estacion(request, pk):
         },
         'municipio_geo': municipio_segun_coordenadas(estacion),
         'contaminantes': [
-            {
-                'abreviatura': c.abreviatura,
-                'nombre': c.nombre,
-                'unidad': c.unidad,
-                'mediciones': medias[c.pk],
-            }
+            datos_contaminante(c, mediciones[c.pk])
             for c in sorted(estacion.contaminantes.all(), key=lambda c: c.codigo)
         ],
     })
+
+
+def datos_contaminante(contaminante, mediciones):
+    """Medias mensuales de un contaminante en una estación, su media anual del último año con
+    datos y cómo queda respecto a cada límite anual."""
+    ultimo_anno = mediciones[-1].anno if mediciones else None
+    anual = media_anual([m for m in mediciones if m.anno == ultimo_anno])
+    valida = anual is not None and anual['valida']
+    return {
+        'abreviatura': contaminante.abreviatura,
+        'nombre': contaminante.nombre,
+        'unidad': contaminante.unidad,
+        'mediciones': [
+            {
+                'anno': m.anno,
+                'mes': m.mes,
+                'media': redondear(m.media),
+                'periodicidad': m.periodicidad,
+                'num_datos': m.num_datos,
+                'cobertura': round(m.cobertura, 2),
+                'pocos_datos': m.pocos_datos,
+            }
+            for m in mediciones
+        ],
+        'anual': anual and {**anual, 'media': redondear(anual['media']), 'cobertura': round(anual['cobertura'], 2)},
+        'sin_limite_anual': SIN_LIMITE_ANUAL.get(contaminante.codigo),
+        'limites': [
+            {
+                'valor': limite.valor,
+                'tipo': limite.tipo,
+                'norma': limite.norma,
+                'desde': limite.desde,
+                # Solo se compara una media anual con la cobertura mínima legal
+                'supera': anual['media'] > limite.valor if valida else None,
+            }
+            for limite in LIMITES_ANUALES.get(contaminante.codigo, [])
+        ],
+    }
 
 
 @require_GET
@@ -273,3 +300,37 @@ def municipios_geojson(request):
         for m in municipios
     ]
     return JsonResponse({'type': 'FeatureCollection', 'features': features})
+
+
+@require_GET
+def resumen_limites(request):
+    """Cuántas estaciones activas superan cada límite anual, por contaminante (?anno=, por defecto
+    el último año con datos). Solo cuentan las medias anuales con la cobertura mínima legal."""
+    try:
+        anno = int(request.GET['anno']) if 'anno' in request.GET else \
+            MedicionMensual.objects.aggregate(ultimo=Max('anno'))['ultimo']
+    except ValueError:
+        return error('anno debe ser un año', 400)
+
+    resumen = []
+    for contaminante in Contaminante.objects.filter(codigo__in=LIMITES_ANUALES).order_by('codigo'):
+        por_estacion = defaultdict(list)
+        for m in MedicionMensual.objects.filter(anno=anno, contaminante=contaminante,
+                                                estacion__fecha_baja__isnull=True):
+            por_estacion[m.estacion_id].append(m)
+        medias = [a['media'] for a in map(media_anual, por_estacion.values()) if a['valida']]
+        if not medias:
+            continue
+        resumen.append({
+            'codigo': contaminante.codigo,
+            'abreviatura': contaminante.abreviatura,
+            'nombre': contaminante.nombre,
+            'unidad': contaminante.unidad,
+            'estaciones_evaluadas': len(medias),
+            'limites': [
+                {'valor': l.valor, 'tipo': l.tipo, 'norma': l.norma, 'desde': l.desde,
+                 'estaciones_que_superan': sum(media > l.valor for media in medias)}
+                for l in LIMITES_ANUALES[contaminante.codigo]
+            ],
+        })
+    return JsonResponse({'anno': anno, 'contaminantes': resumen})

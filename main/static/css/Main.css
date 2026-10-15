@@ -169,3 +169,52 @@ footer p {
 .panel-cobertura table {
     font-size: 0.8rem;
 }
+
+/* Gráfico de medias mensuales y límites */
+.ficha-grafico svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-bottom: 0.5rem;
+}
+
+.ficha-grafico .rejilla {
+    stroke: #e3e3e3;
+    stroke-width: 1;
+}
+
+.ficha-grafico .eje,
+.ficha-grafico .etiqueta-linea {
+    fill: #555;
+    font-size: 11px;
+}
+
+.ficha-grafico .etiqueta-linea {
+    fill: #333;
+}
+
+.ficha-grafico .barra:hover {
+    opacity: 0.8;
+}
+
+.ficha-grafico .linea-media {
+    stroke-width: 2;
+}
+
+.ficha-grafico .linea-limite {
+    stroke-width: 1.5;
+    stroke-dasharray: 6 4;
+}
+
+.ficha-veredicto li {
+    margin-bottom: 0.25rem;
+}
+
+.ficha-veredicto .icono {
+    display: inline-block;
+    width: 1.25rem;
+    font-weight: 700;
+}
+
+.ficha-veredicto .cumple { color: #1a7f37; }
+.ficha-veredicto .supera { color: #b42318; }
