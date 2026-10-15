@@ -3,9 +3,17 @@ document.addEventListener('DOMContentLoaded', function () {
     // El modo arrastrar solo se ofrece a quien puede guardar cambios (el servidor lo comprueba igualmente).
     const puedeEditar = elementoMapa.dataset.puedeEditar === '1';
 
-    const mapa = L.map(elementoMapa).setView([40, 0], 4);
+    const TIPOS = { FONDO: 'Fondo', INDUSTRIAL: 'Industrial', TRAFICO: 'Tráfico' };
+    const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    // Canarias queda lejos de la Península: cada zona tiene su propio encuadre.
+    const VISTAS = {
+        'Península y Baleares': [[35.2, -9.6], [43.9, 4.4]],
+        'Canarias': [[27.6, -18.2], [29.5, -13.3]]
+    };
+
+    const mapa = L.map(elementoMapa).fitBounds(VISTAS['Península y Baleares']);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; colaboradores de OpenStreetMap',
+        attribution: '&copy; colaboradores de OpenStreetMap | Datos: MITECO',
         // OpenStreetMap bloquea las teselas pedidas sin Referer, y Django por defecto no lo envía
         // a otros dominios (Referrer-Policy: same-origin). Aquí se manda solo el origen de la web.
         referrerPolicy: 'strict-origin-when-cross-origin'
@@ -30,10 +38,51 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    const modal = new bootstrap.Modal(document.getElementById('jugadorModal'));
-    const selectorRadio = document.getElementById('modalRadio');
-    const listaCercanos = document.getElementById('modalCercanos');
-    let fichaActual = null; // id del jugador cuya ficha está abierta
+    // Botones para saltar entre la Península y Canarias.
+    const controlVistas = L.control({ position: 'topright' });
+    controlVistas.onAdd = function () {
+        const caja = L.DomUtil.create('div', 'leaflet-bar control-vistas');
+        Object.keys(VISTAS).forEach(function (nombre) {
+            const boton = L.DomUtil.create('button', '', caja);
+            boton.type = 'button';
+            boton.textContent = nombre;
+            L.DomEvent.on(boton, 'click', function (evento) {
+                L.DomEvent.stop(evento);
+                mapa.fitBounds(VISTAS[nombre]);
+            });
+        });
+        L.DomEvent.disableClickPropagation(caja);
+        return caja;
+    };
+    controlVistas.addTo(mapa);
+
+    // Leyenda: el color del marcador indica el tipo de estación.
+    const leyenda = L.control({ position: 'bottomleft' });
+    leyenda.onAdd = function () {
+        const caja = L.DomUtil.create('div', 'leyenda');
+        Object.keys(TIPOS).forEach(function (tipo) {
+            const fila = L.DomUtil.create('div', '', caja);
+            L.DomUtil.create('span', 'punto estacion-' + tipo.toLowerCase(), fila);
+            fila.appendChild(document.createTextNode(TIPOS[tipo]));
+        });
+        return caja;
+    };
+    leyenda.addTo(mapa);
+
+    const modal = new bootstrap.Modal(document.getElementById('fichaModal'));
+    const ficha = {
+        nombre: document.getElementById('fichaNombre'),
+        lugar: document.getElementById('fichaLugar'),
+        cargando: document.getElementById('fichaCargando'),
+        contenido: document.getElementById('fichaContenido'),
+        contaminante: document.getElementById('fichaContaminante'),
+        unidad: document.getElementById('fichaUnidad'),
+        sinMediciones: document.getElementById('fichaSinMediciones'),
+        radio: document.getElementById('fichaRadio'),
+        cercanas: document.getElementById('fichaCercanas')
+    };
+    let fichaActual = null;    // id de la estación cuya ficha está abierta
+    let detalleActual = null;  // datos de esa estación
 
     function leerCookie(nombre) {
         const par = document.cookie.split('; ').find(function (c) { return c.startsWith(nombre + '='); });
@@ -50,15 +99,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function guardarUbicacion(id, latlng) {
-        const punto = latlng.wrap(); // por si se arrastra más allá de ±180° de longitud
-        return pedirJson('/api/jugadores/' + id + '/ubicacion/', {
+        return pedirJson('/api/estaciones/' + id + '/ubicacion/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': leerCookie('csrftoken')
             },
-            body: JSON.stringify({ lat: punto.lat, lng: punto.lng })
+            body: JSON.stringify({ lat: latlng.lat, lng: latlng.lng })
         });
+    }
+
+    function numero(valor, decimales) {
+        return valor.toLocaleString('es-ES', { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
+    }
+
+    function grados(valor, positivo, negativo) {
+        return numero(Math.abs(valor), 5) + '° ' + (valor >= 0 ? positivo : negativo);
     }
 
     // Elemento de lista con un texto y, opcionalmente, una insignia a la derecha.
@@ -71,7 +127,7 @@ document.addEventListener('DOMContentLoaded', function () {
         li.appendChild(titulo);
         if (insignia) {
             const valor = document.createElement('span');
-            valor.className = 'badge bg-primary rounded-pill';
+            valor.className = 'badge bg-secondary rounded-pill';
             valor.textContent = insignia;
             li.appendChild(valor);
         }
@@ -86,44 +142,107 @@ document.addEventListener('DOMContentLoaded', function () {
         elementos.forEach(function (elemento) { lista.appendChild(elemento); });
     }
 
-    function cargarCercanos() {
-        const id = fichaActual;
-        const km = selectorRadio.value;
-        rellenarLista(listaCercanos, [], 'Buscando…');
+    function celda(etiqueta, texto) {
+        const elemento = document.createElement(etiqueta);
+        elemento.textContent = texto;
+        return elemento;
+    }
 
-        pedirJson('/api/jugadores/' + id + '/cercanos/?km=' + km).then(function (datos) {
+    // Tabla con las doce medias mensuales del contaminante elegido.
+    function pintarMeses() {
+        const contaminante = detalleActual.contaminantes[ficha.contaminante.value];
+        const porMes = {};
+        (contaminante ? contaminante.mediciones : []).forEach(function (m) { porMes[m.mes] = m.media; });
+
+        ficha.unidad.textContent = contaminante ? contaminante.nombre.toLowerCase() + ', en ' + contaminante.unidad.replace('m3', 'm³') : '';
+        document.getElementById('fichaMesesCabecera').replaceChildren(...MESES.map(function (mes) { return celda('th', mes); }));
+        document.getElementById('fichaMesesValores').replaceChildren(...MESES.map(function (_, i) {
+            return celda('td', i + 1 in porMes ? numero(porMes[i + 1], 1) : '—');
+        }));
+    }
+
+    function pintarDetalle(d) {
+        detalleActual = d;
+        // Muchas estaciones se llaman como su municipio: entonces no se repite.
+        ficha.lugar.textContent = (d.municipio !== d.nombre ? d.municipio + ', ' : '') + d.provincia + ' (' + d.comunidad + ')';
+        document.getElementById('fichaTipo').textContent = d.tipo + ', área ' + d.area.toLowerCase();
+        document.getElementById('fichaAltitud').textContent = numero(d.altitud, 0) + ' m';
+        document.getElementById('fichaRed').textContent = d.red;
+        document.getElementById('fichaDireccion').textContent = d.direccion || 'Sin dirección';
+
+        const wgs84 = d.coordenadas.wgs84;
+        const utm = d.coordenadas.utm;
+        document.getElementById('fichaWgs84').textContent = grados(wgs84.lat, 'N', 'S') + ', ' + grados(wgs84.lng, 'E', 'O');
+        document.getElementById('fichaUtmNombre').textContent =
+            'UTM huso ' + utm.huso + ' (EPSG:' + utm.epsg + ')';
+        document.getElementById('fichaUtm').textContent =
+            'X ' + numero(utm.x, 2) + ' m, Y ' + numero(utm.y, 2) + ' m';
+
+        // Selector de contaminantes: primero los que tienen datos; por defecto el NO2 si lo mide.
+        const conDatos = d.contaminantes.filter(function (c) { return c.mediciones.length > 0; });
+        ficha.contaminante.replaceChildren(...d.contaminantes.map(function (c, i) {
+            const opcion = new Option(c.abreviatura, i);
+            opcion.disabled = c.mediciones.length === 0;
+            return opcion;
+        }));
+        const porDefecto = conDatos.find(function (c) { return c.abreviatura === 'NO2'; }) || conDatos[0];
+        ficha.contaminante.value = d.contaminantes.indexOf(porDefecto);
+        ficha.contaminante.disabled = conDatos.length === 0;
+        ficha.sinMediciones.hidden = conDatos.length > 0;
+        pintarMeses();
+    }
+
+    function cargarCercanas() {
+        const id = fichaActual;
+        const km = ficha.radio.value;
+        rellenarLista(ficha.cercanas, [], 'Buscando…');
+
+        pedirJson('/api/estaciones/' + id + '/cercanas/?km=' + km).then(function (datos) {
             // Si mientras tanto se abrió otra ficha o se cambió el radio, esta respuesta ya no vale.
-            if (id !== fichaActual || km !== selectorRadio.value) return;
-            rellenarLista(listaCercanos, datos.cercanos.map(function (cercano) {
-                return elementoLista(cercano.alias, Math.round(cercano.distancia_km) + ' km');
-            }), 'Nadie en ese radio');
+            if (id !== fichaActual || km !== ficha.radio.value) return;
+            rellenarLista(ficha.cercanas, datos.cercanas.map(function (c) {
+                return elementoLista(c.nombre + ' (' + c.municipio + ')', numero(c.distancia_km, 1) + ' km');
+            }), 'Ninguna estación en ese radio');
         }).catch(function (error) {
-            console.error('No se pudieron cargar los jugadores cercanos:', error);
-            rellenarLista(listaCercanos, [], 'No se pudieron cargar los jugadores cercanos');
+            console.error('No se pudieron cargar las estaciones cercanas:', error);
+            rellenarLista(ficha.cercanas, [], 'No se pudieron cargar las estaciones cercanas. Prueba otra vez.');
         });
     }
 
     function mostrarFicha(propiedades) {
-        fichaActual = propiedades.id;
-        document.getElementById('modalAlias').innerText = propiedades.alias;
-        document.getElementById('modalNombre').innerText = 'Nombre real: ' + propiedades.nombre;
-        document.getElementById('modalPlataforma').innerText = propiedades.plataforma;
-
-        rellenarLista(
-            document.getElementById('modalListaJuegos'),
-            (propiedades.historial_juegos || []).map(function (juego) {
-                return elementoLista(juego.titulo, juego.puntos + ' pts');
-            }),
-            'Sin puntuaciones registradas'
-        );
-        cargarCercanos();
+        const id = propiedades.id;
+        fichaActual = id;
+        ficha.nombre.textContent = propiedades.nombre;
+        ficha.lugar.textContent = '';
+        ficha.cargando.textContent = 'Cargando la estación…';
+        ficha.cargando.hidden = false;
+        ficha.contenido.hidden = true;
         modal.show();
+
+        pedirJson('/api/estaciones/' + id + '/').then(function (detalle) {
+            if (id !== fichaActual) return;
+            pintarDetalle(detalle);
+            ficha.cargando.hidden = true;
+            ficha.contenido.hidden = false;
+        }).catch(function (error) {
+            console.error('No se pudo cargar la estación:', error);
+            ficha.cargando.textContent = 'No se pudo cargar la estación. Cierra la ficha y vuelve a abrirla.';
+        });
+        cargarCercanas();
     }
 
-    selectorRadio.addEventListener('change', cargarCercanos);
+    ficha.contaminante.addEventListener('change', pintarMeses);
+    ficha.radio.addEventListener('change', cargarCercanas);
 
-    function pintarJugadores(datos) {
-        const capaJugadores = L.geoJSON(datos, {
+    function pintarEstaciones(datos) {
+        const capaEstaciones = L.geoJSON(datos, {
+            pointToLayer: function (feature, latlng) {
+                return L.marker(latlng, {
+                    icon: L.divIcon({ className: 'estacion estacion-' + feature.properties.tipo.toLowerCase(), iconSize: [14, 14] }),
+                    title: feature.properties.nombre,
+                    alt: 'Estación ' + feature.properties.nombre
+                });
+            },
             onEachFeature: function (feature, layer) {
                 layer.on('click', function () {
                     // Al soltar un marcador arrastrado llega también un clic: no abre la ficha.
@@ -131,20 +250,21 @@ document.addEventListener('DOMContentLoaded', function () {
                     mostrarFicha(feature.properties);
                 });
 
-                // Fin del arrastre (modo "arrastrar" de Geoman): se guarda la nueva posición.
+                // Fin del arrastre (modo "arrastrar" de Geoman): se guarda la posición corregida.
                 layer.on('pm:dragend', function (evento) {
                     const marcador = evento.layer || layer;
                     guardarUbicacion(feature.properties.id, marcador.getLatLng()).catch(function (error) {
                         console.error('No se pudo guardar la ubicación:', error);
-                        alert('No se pudo guardar la nueva ubicación. Recarga la página para ver la posición real.');
+                        alert('No se pudo guardar la nueva ubicación (tiene que estar dentro de España). '
+                            + 'Recarga la página para ver la posición guardada.');
                     });
                 });
             }
         });
 
-        // Los marcadores cercanos se agrupan en un círculo con el número de jugadores.
-        const grupos = L.markerClusterGroup();
-        grupos.addLayer(capaJugadores);
+        // Las estaciones cercanas se agrupan en un círculo con su número.
+        const grupos = L.markerClusterGroup({ maxClusterRadius: 50 });
+        grupos.addLayer(capaEstaciones);
         mapa.addLayer(grupos);
 
         // En modo arrastrar se desagrupan para poder mover cada marcador;
@@ -152,23 +272,18 @@ document.addEventListener('DOMContentLoaded', function () {
         mapa.on('pm:globaldragmodetoggled', function (evento) {
             if (evento.enabled) {
                 mapa.removeLayer(grupos);
-                capaJugadores.addTo(mapa);
+                capaEstaciones.addTo(mapa);
             } else {
-                mapa.removeLayer(capaJugadores);
+                mapa.removeLayer(capaEstaciones);
                 grupos.clearLayers();
-                grupos.addLayer(capaJugadores);
+                grupos.addLayer(capaEstaciones);
                 mapa.addLayer(grupos);
             }
         });
-
-        // Encuadra el mapa en los jugadores; si no hay ninguno se queda la vista inicial.
-        if (capaJugadores.getLayers().length > 0) {
-            mapa.fitBounds(capaJugadores.getBounds(), { padding: [40, 40], maxZoom: 8 });
-        }
     }
 
-    pedirJson(elementoMapa.dataset.urlJugadores).then(pintarJugadores).catch(function (error) {
-        console.error('No se pudieron cargar los jugadores:', error);
-        alert('No se pudieron cargar los jugadores. Prueba a recargar la página.');
+    pedirJson(elementoMapa.dataset.urlEstaciones).then(pintarEstaciones).catch(function (error) {
+        console.error('No se pudieron cargar las estaciones:', error);
+        alert('No se pudieron cargar las estaciones. Prueba a recargar la página.');
     });
 });

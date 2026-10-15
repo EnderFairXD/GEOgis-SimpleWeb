@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa de jugadores</title>
+    <title>Calidad del aire en España</title>
     <!-- Librerías del CDN con integrity (SRI): el navegador las rechaza si su contenido cambia -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
           integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
@@ -21,12 +21,12 @@
 <body>
 
     <header>
-        <h1>Mapa de jugadores</h1>
+        <h1>Calidad del aire en España</h1>
         {% if puede_editar %}
-        <p>Pulsa un jugador para ver sus puntuaciones. Activa el modo arrastrar para mover su ubicación.</p>
+        <p>Pulsa una estación para ver sus medias mensuales de 2024. Activa el modo arrastrar para corregir su ubicación.</p>
         {% else %}
-        <p>Pulsa un jugador para ver sus puntuaciones.
-           <a href="{% url 'admin:login' %}?next=/">Inicia sesión</a> para mover su ubicación.</p>
+        <p>Pulsa una estación para ver sus medias mensuales de 2024.
+           <a href="{% url 'admin:login' %}?next=/">Inicia sesión</a> para corregir ubicaciones.</p>
         {% endif %}
     </header>
 
@@ -34,31 +34,60 @@
     <div id="mi_mapa" data-puede-editar="{{ puede_editar|yesno:'1,0' }}"
          data-url-estaciones="{% url 'estaciones_geojson' %}"></div>
 
-    <!-- Ventana con la ficha del jugador -->
-    <div id="jugadorModal" class="modal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-scrollable">
+    <!-- Ventana con la ficha de la estación -->
+    <div id="fichaModal" class="modal" tabindex="-1" aria-labelledby="fichaNombre">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 id="modalAlias" class="modal-title"></h5>
+                    <div>
+                        <h5 id="fichaNombre" class="modal-title"></h5>
+                        <p id="fichaLugar" class="text-muted mb-0"></p>
+                    </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body">
-                    <h6 id="modalNombre"></h6>
-                    <p><strong>Plataforma:</strong> <span id="modalPlataforma"></span></p>
-                    <hr>
-                    <h6>Historial de puntuaciones:</h6>
-                    <ul id="modalListaJuegos" class="list-group"></ul>
-                    <hr>
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <h6 class="mb-0">Jugadores a menos de</h6>
-                        <select id="modalRadio" class="form-select form-select-sm w-auto" aria-label="Radio de búsqueda">
-                            <option value="250">250 km</option>
-                            <option value="500" selected>500 km</option>
-                            <option value="1000">1000 km</option>
-                            <option value="2000">2000 km</option>
-                        </select>
+                    <p id="fichaCargando" class="text-muted">Cargando la estación…</p>
+                    <div id="fichaContenido" hidden>
+                        <dl class="ficha-datos">
+                            <dt>Tipo</dt><dd id="fichaTipo"></dd>
+                            <dt>Altitud</dt><dd id="fichaAltitud"></dd>
+                            <dt>Red</dt><dd id="fichaRed"></dd>
+                            <dt>Dirección</dt><dd id="fichaDireccion"></dd>
+                        </dl>
+
+                        <h6>Coordenadas</h6>
+                        <table class="table table-sm ficha-coordenadas">
+                            <tbody>
+                                <tr><th scope="row">Geográficas (WGS84)</th><td id="fichaWgs84"></td></tr>
+                                <tr><th scope="row" id="fichaUtmNombre"></th><td id="fichaUtm"></td></tr>
+                            </tbody>
+                        </table>
+
+                        <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                            <h6 class="mb-0">Media mensual de</h6>
+                            <select id="fichaContaminante" class="form-select form-select-sm w-auto"
+                                    aria-label="Contaminante"></select>
+                            <span id="fichaUnidad" class="text-muted small"></span>
+                        </div>
+                        <p id="fichaSinMediciones" class="text-muted" hidden>Esta estación no tiene medias mensuales de 2024.</p>
+                        <div class="table-responsive">
+                            <table class="table table-sm ficha-meses">
+                                <thead><tr id="fichaMesesCabecera"></tr></thead>
+                                <tbody><tr id="fichaMesesValores"></tr></tbody>
+                            </table>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <h6 class="mb-0">Estaciones a menos de</h6>
+                            <select id="fichaRadio" class="form-select form-select-sm w-auto" aria-label="Radio de búsqueda">
+                                <option value="10">10 km</option>
+                                <option value="25" selected>25 km</option>
+                                <option value="50">50 km</option>
+                                <option value="100">100 km</option>
+                            </select>
+                        </div>
+                        <ul id="fichaCercanas" class="list-group"></ul>
                     </div>
-                    <ul id="modalCercanos" class="list-group"></ul>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
@@ -68,7 +97,7 @@
     </div>
 
     <footer>
-        <p>GEOgis</p>
+        <p>GEOgis. Datos de calidad del aire: Ministerio para la Transición Ecológica y el Reto Demográfico (2024).</p>
     </footer>
 
     <script src="{% static 'leaflet/leaflet.js' %}"></script>

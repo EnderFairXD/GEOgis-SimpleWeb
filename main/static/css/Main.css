@@ -38,3 +38,85 @@ footer {
 footer p {
     margin: 0;
 }
+
+/* Colores por tipo de estación: distinguibles entre sí y sobre el mapa claro de OpenStreetMap. */
+:root {
+    --estacion-fondo: #1f6f8b;
+    --estacion-industrial: #7a4b9c;
+    --estacion-trafico: #c8811a;
+}
+
+.estacion {
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.estacion-fondo { background: var(--estacion-fondo); }
+.estacion-industrial { background: var(--estacion-industrial); }
+.estacion-trafico { background: var(--estacion-trafico); }
+
+.leyenda {
+    background: #fff;
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.leyenda .punto {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-right: 0.4rem;
+    vertical-align: -1px;
+    border-radius: 50%;
+}
+
+.control-vistas button {
+    display: block;
+    width: 100%;
+    padding: 0.3rem 0.6rem;
+    border: 0;
+    border-bottom: 1px solid #ccc;
+    background: #fff;
+    font-size: 0.85rem;
+    text-align: left;
+}
+
+.control-vistas button:last-child {
+    border-bottom: 0;
+}
+
+.control-vistas button:hover,
+.control-vistas button:focus-visible {
+    background: #f0f0f0;
+}
+
+/* Ficha de la estación */
+.ficha-datos {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.25rem 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.ficha-datos dt {
+    font-weight: 600;
+}
+
+.ficha-datos dd {
+    margin: 0;
+}
+
+.ficha-coordenadas th {
+    width: 14rem;
+    font-weight: 600;
+}
+
+.ficha-meses th,
+.ficha-meses td {
+    text-align: center;
+    white-space: nowrap;
+}
