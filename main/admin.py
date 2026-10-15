@@ -1,31 +1,39 @@
 from django.contrib.gis import admin
 from django.db.models import Count
 
-from .models import Jugador, Puntuacion, Videojuego
+from .models import Contaminante, Estacion, MedicionMensual
 
 
-class PuntuacionInline(admin.TabularInline):
-    """Puntuaciones del jugador, editables dentro de su ficha."""
-    model = Puntuacion
-    extra = 1
-    autocomplete_fields = ['videojuego']
+class MedicionMensualInline(admin.TabularInline):
+    """Medias mensuales de la estación (solo lectura: vienen de los ficheros del MITECO)."""
+    model = MedicionMensual
+    fields = ('contaminante', 'anno', 'mes', 'media', 'num_datos')
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
-@admin.register(Jugador)
-class JugadorAdmin(admin.GISModelAdmin):
-    list_display = ('alias', 'nombre', 'plataforma', 'total_juegos')
-    inlines = [PuntuacionInline]
+@admin.register(Estacion)
+class EstacionAdmin(admin.GISModelAdmin):
+    list_display = ('nombre', 'municipio', 'provincia', 'tipo', 'area', 'num_contaminantes')
+    list_filter = ('comunidad', 'tipo', 'area')
+    search_fields = ('nombre', 'municipio', 'codigo', 'codigo_europeo')
+    filter_horizontal = ('contaminantes',)
+    inlines = [MedicionMensualInline]
 
     def get_queryset(self, request):
-        # Cuenta los juegos en la misma consulta del listado (sin una consulta por fila).
-        return super().get_queryset(request).annotate(num_juegos=Count('juegos'))
+        # Cuenta los contaminantes en la misma consulta del listado (sin una consulta por fila).
+        return super().get_queryset(request).annotate(total_contaminantes=Count('contaminantes'))
 
-    @admin.display(description='Juegos jugados', ordering='num_juegos')
-    def total_juegos(self, obj):
-        return obj.num_juegos
+    @admin.display(description='Contaminantes', ordering='total_contaminantes')
+    def num_contaminantes(self, obj):
+        return obj.total_contaminantes
 
 
-@admin.register(Videojuego)
-class VideojuegoAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'tipo')
-    search_fields = ('nombre',)
+@admin.register(Contaminante)
+class ContaminanteAdmin(admin.ModelAdmin):
+    list_display = ('abreviatura', 'nombre', 'unidad', 'codigo')
+    search_fields = ('abreviatura', 'nombre')

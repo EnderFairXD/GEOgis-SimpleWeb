@@ -32,7 +32,7 @@
 
     <!-- Aquí se pinta el mapa -->
     <div id="mi_mapa" data-puede-editar="{{ puede_editar|yesno:'1,0' }}"
-         data-url-jugadores="{% url 'jugadores_geojson' %}"></div>
+         data-url-estaciones="{% url 'estaciones_geojson' %}"></div>
 
     <!-- Ventana con la ficha del jugador -->
     <div id="jugadorModal" class="modal" tabindex="-1">

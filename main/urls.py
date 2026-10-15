@@ -4,8 +4,8 @@ from . import views
 
 urlpatterns = [
     path('', views.index, name='mapa'),
-    path('api/jugadores/', views.jugadores_geojson, name='jugadores_geojson'),
-    path('api/jugadores/<int:pk>/cercanos/', views.jugadores_cercanos, name='jugadores_cercanos'),
-    path('api/jugadores/<int:pk>/ubicacion/', views.actualizar_ubicacion_jugador,
-         name='actualizar_ubicacion_jugador'),
+    path('api/estaciones/', views.estaciones_geojson, name='estaciones_geojson'),
+    path('api/estaciones/<int:pk>/', views.detalle_estacion, name='detalle_estacion'),
+    path('api/estaciones/<int:pk>/cercanas/', views.estaciones_cercanas, name='estaciones_cercanas'),
+    path('api/estaciones/<int:pk>/ubicacion/', views.corregir_ubicacion, name='corregir_ubicacion'),
 ]
