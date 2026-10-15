@@ -61,6 +61,11 @@ jobs:
           docker compose exec -T web python manage.py importar_estaciones
           curl -sf http://localhost:8000/api/estaciones/ \
             | python3 -c "import sys, json; n = len(json.load(sys.stdin)['features']); print(n, 'estaciones activas'); sys.exit(n < 500)"
+      - name: Importar los municipios de GISCO y comprobar la cobertura
+        run: |
+          docker compose exec -T web python manage.py importar_municipios
+          curl -sf "http://localhost:8000/api/cobertura/?km=25" \
+            | python3 -c "import sys, json; d = json.load(sys.stdin); print(d['municipios']['total'], 'municipios,', d['poblacion']['porcentaje'], '% cubierto'); sys.exit(d['municipios']['total'] < 8000)"
       - name: Tests dentro del contenedor
         run: docker compose exec -T web python manage.py test
       - name: Logs si algo falla

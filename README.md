@@ -6,7 +6,8 @@ Mapa de la **red oficial de estaciones de calidad del aire de España**, hecho c
 **PostGIS** y **Leaflet**. Importa las 612 estaciones y las medias mensuales de contaminantes
 publicadas por el Ministerio para la Transición Ecológica (MITECO), y permite consultarlas en el
 mapa: datos de cada estación, sus coordenadas en el sistema UTM oficial que le corresponde y las
-estaciones que tiene alrededor.
+estaciones que tiene alrededor. Con los 8.131 municipios de España analiza además la
+**cobertura** de la red: qué parte de la población tiene una estación cerca.
 
 ![Mapa de España con las estaciones agrupadas](docs/capturas/mapa.jpg)
 
@@ -23,11 +24,49 @@ estaciones que tiene alrededor.
   (modo arrastrar de Geoman) o moverla en el admin, y la nueva posición se guarda. El servidor
   rechaza (403) a cualquier otro usuario. Las ubicaciones corregidas se conservan al volver a
   importar los datos del MITECO.
+- **Cobertura de la red**: un panel calcula qué porcentaje de la población vive en un municipio
+  con una estación a menos de 10, 25 o 50 km, en total y por provincia. Al acercar el zoom, los
+  municipios se colorean según su distancia a la estación más cercana.
+- **Control de calidad de los datos**: cada estación se cruza con el municipio que la contiene
+  según sus coordenadas. Si queda a más de 1 km del municipio que indica el MITECO, la ficha
+  avisa de un posible error.
 - **Panel de administración** con mapa para editar estaciones y consultar sus mediciones.
 
 | Ficha de una estación | Canarias |
 |---|---|
 | ![Ficha de Escuelas Aguirre con las medias mensuales de NO2](docs/capturas/ficha.jpg) | ![Estaciones de las Islas Canarias](docs/capturas/canarias.jpg) |
+
+## Cobertura
+
+![Municipios de La Mancha coloreados según su distancia a la estación más cercana](docs/capturas/cobertura.jpg)
+
+Para cada municipio se calcula la distancia desde su término municipal hasta la estación activa
+más cercana: el operador KNN `<->` de PostGIS recorre el índice espacial para encontrarla y
+`ST_Distance` la mide sobre el elipsoide. Un municipio está **cubierto** si tiene una estación
+dentro o a menos del radio elegido; la población cubierta es la de esos municipios.
+
+| Radio | Población cubierta | Municipios cubiertos | Provincias con menos cobertura |
+|---|---|---|---|
+| 10 km | 82,5 % | 2.809 de 8.131 | Cuenca (29,9 %), Ciudad Real (32,1 %), Cáceres (39,8 %) |
+| 25 km | 95,0 % | 5.768 de 8.131 | Cuenca (39,9 %), Ciudad Real (50,4 %), Córdoba (58,9 %) |
+
+Se mide hasta el término y no hasta un punto central porque en los municipios extensos (Cáceres
+mide 1.751 km²) cualquier punto interior puede quedar a decenas de kilómetros del casco urbano y
+de su estación. A cambio, en esos municipios se da por cubierta a toda su población.
+
+### Estaciones fuera de su municipio
+
+Al cruzar las coordenadas con los términos municipales, 18 estaciones no caen en el municipio de
+su código. 15 están a menos de 1 km: son estaciones junto a un límite o a la costa que los límites
+simplificados (escala 1:1.000.000) dejan al otro lado. Las otras 3 parecen errores en los datos:
+
+| Estación | Municipio del MITECO | Según sus coordenadas | Distancia |
+|---|---|---|---|
+| El Río | Arona | Arico | 12,4 km |
+| Torre Endoménech | Torre Endoménech | Culla | 11,4 km |
+| Noia | Noia | Boiro | 3,6 km |
+
+![Aviso en la ficha de la estación El Río](docs/capturas/aviso.jpg)
 
 ## Sistemas de referencia
 
@@ -70,6 +109,18 @@ al mes por diseño.
 [datos oficiales de calidad del aire 2024](https://www.miteco.gob.es/es/calidad-y-evaluacion-ambiental/temas/atmosfera-y-calidad-del-aire/evaluacion-y-datos-de-calidad-del-aire/datos/datos-oficiales-2024.html).
 Reutilización según la Ley 37/2007 de reutilización de la información del sector público.
 
+### Municipios
+
+Los límites y la población de 2023 son los de las unidades administrativas locales (LAU) de
+[Eurostat GISCO](https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units/local-administrative-units),
+que usan los códigos y la población del INE. La columna de superficie de ese fichero no cuadra
+con los polígonos de España (da 5.521 km² a Madrid, que mide 605), así que el área se calcula al
+importar en la proyección de igual área **ETRS89-LAEA (EPSG:3035)**.
+
+**Licencia:** © EuroGeographics for the administrative boundaries. Su uso está permitido para
+fines no comerciales; el uso comercial requiere un acuerdo con EuroGeographics. El importador
+descarga el fichero, así que los límites no se redistribuyen en este repositorio.
+
 ## Arranque rápido con Docker
 
 Solo necesitas Docker. Levanta PostgreSQL + PostGIS y la app y aplica las migraciones:
@@ -84,6 +135,7 @@ y crea un usuario para el panel de administración:
 ```bash
 docker compose exec web python manage.py importar_estaciones
 docker compose exec web python manage.py importar_mediciones
+docker compose exec web python manage.py importar_municipios
 docker compose exec web python manage.py createsuperuser
 ```
 
@@ -113,6 +165,7 @@ cp .env.example .env     # rellena DB_PASSWORD y DJANGO_SECRET_KEY (se lee autom
 python manage.py migrate
 python manage.py importar_estaciones
 python manage.py importar_mediciones
+python manage.py importar_municipios
 python manage.py createsuperuser
 python manage.py runserver
 ```
@@ -126,6 +179,8 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 | `GET /api/estaciones/` | `FeatureCollection` GeoJSON con las estaciones activas (sin mediciones, para que el mapa cargue rápido) |
 | `GET /api/estaciones/<id>/` | Ficha: datos, coordenadas WGS84 y UTM, y medias mensuales por contaminante |
 | `GET /api/estaciones/<id>/cercanas/?km=25` | Estaciones activas a menos de `km` kilómetros (hasta 1000), de la más cercana a la más lejana |
+| `GET /api/cobertura/?km=10` | Población y municipios con una estación a menos de `km` kilómetros, en total y por provincia |
+| `GET /api/municipios/?bbox=oeste,sur,este,norte` | Municipios de la zona visible (simplificados, como GeoJSON) con la distancia a su estación más cercana |
 | `POST /api/estaciones/<id>/ubicacion/` | Guarda `{"lat": …, "lng": …}` (dentro de España) y devuelve las nuevas coordenadas UTM. Requiere el permiso `main.change_estacion` |
 
 ## Estructura
@@ -133,13 +188,15 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 | Ruta | Contenido |
 |---|---|
 | `geogis/` | Configuración del proyecto Django |
-| `main/models.py` | `Estacion` (`PointField` geography), `Contaminante` y `MedicionMensual` |
+| `main/models.py` | `Estacion` (`PointField` geography), `Contaminante`, `MedicionMensual` y `Municipio` |
 | `main/geo.py` | Huso y coordenadas UTM oficiales de cada punto de España |
-| `main/importacion.py` | Lectura de los ficheros del MITECO y cálculo de las medias mensuales |
-| `main/management/commands/` | Comandos `importar_estaciones` e `importar_mediciones` |
+| `main/cobertura.py` | Distancia de cada municipio a la estación más cercana (KNN de PostGIS) |
+| `main/ine.py` | Nombres de las provincias por código INE |
+| `main/importacion.py` | Lectura de los ficheros del MITECO y de GISCO, medias mensuales y unión espacial |
+| `main/management/commands/` | Comandos `importar_estaciones`, `importar_mediciones` e `importar_municipios` |
 | `main/views.py` | Vista del mapa y endpoints de la API |
 | `main/static/js/Main.js` | Mapa, agrupación, ficha de la estación y corrección de ubicaciones |
-| `main/tests/` | Tests de coordenadas, importación, API, permisos y admin |
+| `main/tests/` | Tests de coordenadas, importación, cobertura, API, permisos y admin |
 | `.github/workflows/tests.yml` | CI: tests con PostGIS y arranque completo con Docker Compose |
 
 ## Tests
@@ -154,4 +211,4 @@ descargan nada: generan ficheros con el formato del MITECO en una carpeta tempor
 
 ## Licencia
 
-Código: MIT © Javier Cortés Vidal. Datos: MITECO (ver [Datos](#datos)).
+Código: MIT © Javier Cortés Vidal. Datos: MITECO y © EuroGeographics (ver [Datos](#datos)).
