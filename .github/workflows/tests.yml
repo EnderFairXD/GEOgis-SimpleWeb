@@ -50,14 +50,17 @@ jobs:
       - uses: actions/checkout@v7
       - name: Levantar la app
         run: docker compose up -d --build
-      - name: Esperar a que responda y comprobar los datos de ejemplo
+      - name: Esperar a que responda
         run: |
           for i in $(seq 1 60); do
             curl -sf http://localhost:8000/ > /dev/null && break
             sleep 2
           done
-          curl -sf http://localhost:8000/api/jugadores/ \
-            | python3 -c "import sys, json; n = len(json.load(sys.stdin)['features']); print(n, 'jugadores'); sys.exit(n != 15)"
+      - name: Importar las estaciones del MITECO y comprobar la API
+        run: |
+          docker compose exec -T web python manage.py importar_estaciones
+          curl -sf http://localhost:8000/api/estaciones/ \
+            | python3 -c "import sys, json; n = len(json.load(sys.stdin)['features']); print(n, 'estaciones activas'); sys.exit(n < 500)"
       - name: Tests dentro del contenedor
         run: docker compose exec -T web python manage.py test
       - name: Logs si algo falla

@@ -163,8 +163,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function pintarDetalle(d) {
         detalleActual = d;
-        // Muchas estaciones se llaman como su municipio: entonces no se repite.
-        ficha.lugar.textContent = (d.municipio !== d.nombre ? d.municipio + ', ' : '') + d.provincia + ' (' + d.comunidad + ')';
+        // Municipio, provincia y comunidad, sin repetir nombres (Madrid, Madrid, Madrid) ni el de la estación.
+        const lugar = [d.municipio, d.provincia, d.comunidad].filter(function (nombre, i, todos) {
+            return nombre !== d.nombre && todos.indexOf(nombre) === i;
+        });
+        ficha.lugar.textContent = lugar.join(', ');
         document.getElementById('fichaTipo').textContent = d.tipo + ', área ' + d.area.toLowerCase();
         document.getElementById('fichaAltitud').textContent = numero(d.altitud, 0) + ' m';
         document.getElementById('fichaRed').textContent = d.red;

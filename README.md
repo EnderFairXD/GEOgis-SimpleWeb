@@ -2,45 +2,84 @@
 
 [![Tests](https://github.com/EnderFairXD/GEOgis-SimpleWeb/actions/workflows/tests.yml/badge.svg)](https://github.com/EnderFairXD/GEOgis-SimpleWeb/actions/workflows/tests.yml)
 
-Aplicación web con **GeoDjango**, **PostGIS** y **Leaflet**: muestra en un mapa a los jugadores
-de videojuegos, con su plataforma y su historial de puntuaciones, y permite mover su ubicación
-arrastrando el marcador.
+Mapa de la **red oficial de estaciones de calidad del aire de España**, hecho con **GeoDjango**,
+**PostGIS** y **Leaflet**. Importa las 612 estaciones y las medias mensuales de contaminantes
+publicadas por el Ministerio para la Transición Ecológica (MITECO), y permite consultarlas en el
+mapa: datos de cada estación, sus coordenadas en el sistema UTM oficial que le corresponde y las
+estaciones que tiene alrededor.
 
-![Mapa con los jugadores repartidos por Europa](docs/capturas/mapa.jpg)
+![Mapa de España con las estaciones agrupadas](docs/capturas/mapa.jpg)
 
 ## Qué hace
 
-- **Mapa** con un marcador por jugador que tenga ubicación. Los marcadores cercanos se agrupan
-  (Leaflet.markercluster) y se separan al acercar el zoom.
-- **Ficha del jugador** al pulsar un marcador: alias, nombre, plataforma y puntuaciones por juego.
-- **Jugadores cercanos** en la ficha: los que están a menos de 250, 500, 1000 o 2000 km,
-  ordenados por distancia. La distancia la calcula PostGIS sobre la esfera terrestre.
-- **Modo arrastrar** (control de Geoman, arriba a la izquierda): al soltar un marcador, la nueva
-  posición se guarda en la base de datos. Solo aparece para usuarios con permiso para editar
-  jugadores, y el servidor rechaza (403) cualquier otro intento.
-- **Panel de administración** de Django con mapa para editar ubicaciones, y puntuaciones por jugador.
+- **Mapa** con las estaciones activas, coloreadas por tipo (fondo, industrial o tráfico) y
+  agrupadas cuando están cerca. Un control salta entre la Península y Baleares y Canarias.
+- **Ficha de la estación**: tipo y área, altitud, red, dirección, coordenadas geográficas y UTM,
+  y las medias mensuales de 2024 de cada contaminante que mide.
+- **Estaciones cercanas** a 10, 25, 50 o 100 km, ordenadas por distancia geodésica.
+- **Corrección de ubicaciones**: los usuarios con permiso pueden arrastrar una estación en el mapa
+  (modo arrastrar de Geoman) y la nueva posición se guarda. El servidor rechaza (403) a cualquier
+  otro usuario.
+- **Panel de administración** con mapa para editar estaciones y consultar sus mediciones.
 
-| Ficha con jugadores cercanos | Modo arrastrar (editor) |
+| Ficha de una estación | Canarias |
 |---|---|
-| ![Ficha con el historial de puntuaciones](docs/capturas/ficha.jpg) | ![Mapa con el control de arrastrar activo](docs/capturas/arrastrar.jpg) |
+| ![Ficha de Escuelas Aguirre con las medias mensuales de NO2](docs/capturas/ficha.jpg) | ![Estaciones de las Islas Canarias](docs/capturas/canarias.jpg) |
 
-![Panel de administración con el mapa de ubicación](docs/capturas/admin.jpg)
+## Sistemas de referencia
+
+Las estaciones se guardan como `geography` en **WGS84 (EPSG:4326)**. Así PostGIS calcula las
+distancias **sobre el elipsoide**, con la misma precisión en Galicia, Cataluña o Canarias.
+Proyectar toda España en un único huso UTM (por ejemplo EPSG:25830) desvía las distancias un
+0,2–0,3 % en los husos vecinos y casi un 2 % en Canarias.
+
+La ficha muestra además las coordenadas en metros en el **sistema UTM oficial de cada zona**:
+
+| Zona | Huso | Sistema |
+|---|---|---|
+| Galicia y oeste peninsular | 29 | ETRS89 / UTM 29N (EPSG:25829) |
+| Centro peninsular, Ceuta y Melilla | 30 | ETRS89 / UTM 30N (EPSG:25830) |
+| Cataluña, este peninsular y Baleares | 31 | ETRS89 / UTM 31N (EPSG:25831) |
+| Canarias | 28 | REGCAN95 / UTM 28N (EPSG:4083) |
+
+Los tests comprueban las coordenadas UTM contra las publicadas por el Ayuntamiento de Madrid
+(menos de 1 m de diferencia) y que las distancias son las del elipsoide y no las de una esfera.
+
+## Datos
+
+| Qué | Fichero del MITECO |
+|---|---|
+| Estaciones y catálogo de contaminantes | `Metainformacion_2024.xlsx` |
+| Medias mensuales | `Datos_HH_2024.zip` (horarios) y `Datos_DD_2024.zip` (diarios) |
+
+Los importadores descargan los ficheros, así que no se guardan en el repositorio. Las medias
+mensuales se calculan al importar: un año de datos horarios son unos 28 millones de valores y en
+la base de datos quedan unas 48.000 medias. Se usan los datos horarios y, para los meses sin
+ellos (metales, benzo(a)pireno, captadores manuales), los diarios. Se descartan los valores
+negativos.
+
+**Fuente:** Ministerio para la Transición Ecológica y el Reto Demográfico,
+[datos oficiales de calidad del aire 2024](https://www.miteco.gob.es/es/calidad-y-evaluacion-ambiental/temas/atmosfera-y-calidad-del-aire/evaluacion-y-datos-de-calidad-del-aire/datos/datos-oficiales-2024.html).
+Reutilización según la Ley 37/2007 de reutilización de la información del sector público.
 
 ## Arranque rápido con Docker
 
-Solo necesitas Docker. Levanta PostgreSQL + PostGIS y la app, aplica las migraciones y carga
-los datos de ejemplo:
+Solo necesitas Docker. Levanta PostgreSQL + PostGIS y la app y aplica las migraciones:
 
 ```bash
 docker compose up --build
 ```
 
-Abre <http://localhost:8000/>. Para entrar al panel de administración y poder mover jugadores,
-crea un usuario en otra terminal:
+En otra terminal, importa los datos (una sola vez: se guardan en el volumen de la base de datos)
+y crea un usuario para el panel de administración:
 
 ```bash
+docker compose exec web python manage.py importar_estaciones
+docker compose exec web python manage.py importar_mediciones
 docker compose exec web python manage.py createsuperuser
 ```
+
+Abre <http://localhost:8000/>.
 
 ## Instalación manual
 
@@ -64,32 +103,35 @@ psql -d GeoDjango -c "CREATE EXTENSION postgis;"
 cp .env.example .env     # rellena DB_PASSWORD y DJANGO_SECRET_KEY (se lee automáticamente)
 
 python manage.py migrate
-python manage.py cargar_demo        # opcional: 15 jugadores y 8 juegos de ejemplo
+python manage.py importar_estaciones
+python manage.py importar_mediciones
 python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para añadir
-jugadores, videojuegos y puntuaciones.
+Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para el panel.
 
 ## API
 
 | Método y ruta | Devuelve |
 |---|---|
-| `GET /api/jugadores/` | `FeatureCollection` GeoJSON con los jugadores que tienen ubicación |
-| `GET /api/jugadores/<id>/cercanos/?km=500` | Jugadores a menos de `km` kilómetros, del más cercano al más lejano |
-| `POST /api/jugadores/<id>/ubicacion/` | Guarda `{"lat": …, "lng": …}`. Requiere el permiso `main.change_jugador` |
+| `GET /api/estaciones/` | `FeatureCollection` GeoJSON con las estaciones activas (sin mediciones, para que el mapa cargue rápido) |
+| `GET /api/estaciones/<id>/` | Ficha: datos, coordenadas WGS84 y UTM, y medias mensuales por contaminante |
+| `GET /api/estaciones/<id>/cercanas/?km=25` | Estaciones activas a menos de `km` kilómetros (hasta 1000), de la más cercana a la más lejana |
+| `POST /api/estaciones/<id>/ubicacion/` | Guarda `{"lat": …, "lng": …}` (dentro de España) y devuelve las nuevas coordenadas UTM. Requiere el permiso `main.change_estacion` |
 
 ## Estructura
 
 | Ruta | Contenido |
 |---|---|
 | `jugadores/` | Configuración del proyecto Django |
-| `main/models.py` | `Jugador` (con `PointField`), `Videojuego` y `Puntuacion` |
+| `main/models.py` | `Estacion` (`PointField` geography), `Contaminante` y `MedicionMensual` |
+| `main/geo.py` | Huso y coordenadas UTM oficiales de cada punto de España |
+| `main/importacion.py` | Lectura de los ficheros del MITECO y cálculo de las medias mensuales |
+| `main/management/commands/` | Comandos `importar_estaciones` e `importar_mediciones` |
 | `main/views.py` | Vista del mapa y endpoints de la API |
-| `main/static/js/Main.js` | Mapa, agrupación, ficha del jugador y guardado al arrastrar |
-| `main/management/commands/cargar_demo.py` | Datos de ejemplo (ficticios) |
-| `main/tests.py` | Tests de la API, permisos, admin, modelos y datos de ejemplo |
+| `main/static/js/Main.js` | Mapa, agrupación, ficha de la estación y corrección de ubicaciones |
+| `main/tests/` | Tests de coordenadas, importación, API, permisos y admin |
 | `.github/workflows/tests.yml` | CI: tests con PostGIS y arranque completo con Docker Compose |
 
 ## Tests
@@ -99,8 +141,9 @@ python manage.py test                                  # instalación manual
 docker compose run --rm web python manage.py test      # con Docker
 ```
 
-Necesitan la misma base de datos PostGIS (Django crea y borra una base de pruebas aparte).
+Necesitan la misma base de datos PostGIS (Django crea y borra una base de pruebas aparte). No
+descargan nada: generan ficheros con el formato del MITECO en una carpeta temporal.
 
 ## Licencia
 
-MIT © Javier Cortés Vidal
+Código: MIT © Javier Cortés Vidal. Datos: MITECO (ver [Datos](#datos)).
