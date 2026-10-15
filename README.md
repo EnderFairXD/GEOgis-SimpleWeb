@@ -15,11 +15,14 @@ estaciones que tiene alrededor.
 - **Mapa** con las estaciones activas, coloreadas por tipo (fondo, industrial o tráfico) y
   agrupadas cuando están cerca. Un control salta entre la Península y Baleares y Canarias.
 - **Ficha de la estación**: tipo y área, altitud, red, dirección, coordenadas geográficas y UTM,
-  y las medias mensuales de 2024 de cada contaminante que mide.
+  y las medias mensuales de 2024 de cada contaminante que mide. Las medias horarias calculadas con
+  menos del 75 % de las horas del mes se marcan como poco fiables, y cada mes indica con cuántas
+  horas o días se calculó.
 - **Estaciones cercanas** a 10, 25, 50 o 100 km, ordenadas por distancia geodésica.
 - **Corrección de ubicaciones**: los usuarios con permiso pueden arrastrar una estación en el mapa
-  (modo arrastrar de Geoman) y la nueva posición se guarda. El servidor rechaza (403) a cualquier
-  otro usuario.
+  (modo arrastrar de Geoman) o moverla en el admin, y la nueva posición se guarda. El servidor
+  rechaza (403) a cualquier otro usuario. Las ubicaciones corregidas se conservan al volver a
+  importar los datos del MITECO.
 - **Panel de administración** con mapa para editar estaciones y consultar sus mediciones.
 
 | Ficha de una estación | Canarias |
@@ -57,6 +60,11 @@ mensuales se calculan al importar: un año de datos horarios son unos 28 millone
 la base de datos quedan unas 48.000 medias. Se usan los datos horarios y, para los meses sin
 ellos (metales, benzo(a)pireno, captadores manuales), los diarios. Se descartan los valores
 negativos.
+
+Cada media guarda de qué fichero sale y con cuántos datos se calculó. Una media horaria con menos
+del 75 % de las horas del mes se considera poco fiable (en 2024, unas 1.400 de 48.000). Las
+diarias no se marcan, porque los captadores de metales y benzo(a)pireno muestrean unos pocos días
+al mes por diseño.
 
 **Fuente:** Ministerio para la Transición Ecológica y el Reto Demográfico,
 [datos oficiales de calidad del aire 2024](https://www.miteco.gob.es/es/calidad-y-evaluacion-ambiental/temas/atmosfera-y-calidad-del-aire/evaluacion-y-datos-de-calidad-del-aire/datos/datos-oficiales-2024.html).
@@ -124,7 +132,7 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 
 | Ruta | Contenido |
 |---|---|
-| `jugadores/` | Configuración del proyecto Django |
+| `geogis/` | Configuración del proyecto Django |
 | `main/models.py` | `Estacion` (`PointField` geography), `Contaminante` y `MedicionMensual` |
 | `main/geo.py` | Huso y coordenadas UTM oficiales de cada punto de España |
 | `main/importacion.py` | Lectura de los ficheros del MITECO y cálculo de las medias mensuales |
