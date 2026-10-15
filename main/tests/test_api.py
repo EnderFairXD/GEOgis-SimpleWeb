@@ -76,9 +76,9 @@ class DetalleEstacionTests(TestCase):
         self.no2 = Contaminante.objects.create(codigo=8, abreviatura='NO2', nombre='DIÓXIDO DE NITRÓGENO', unidad='µg/m3')
         self.so2 = Contaminante.objects.create(codigo=1, abreviatura='SO2', nombre='DIÓXIDO DE AZUFRE', unidad='µg/m3')
         self.estacion.contaminantes.set([self.no2, self.so2])
-        for mes, media in [(2, 35.5), (1, 40.25)]:
-            MedicionMensual.objects.create(estacion=self.estacion, contaminante=self.no2,
-                                           anno=2024, mes=mes, media=media, num_datos=700)
+        for mes, media, horas in [(2, 35.5, 300), (1, 40.25, 700)]:
+            MedicionMensual.objects.create(estacion=self.estacion, contaminante=self.no2, periodicidad='HORARIA',
+                                           anno=2024, mes=mes, media=media, num_datos=horas)
 
     def detalle(self, pk=None):
         return self.client.get(reverse('detalle_estacion', args=[pk or self.estacion.pk]))
@@ -107,8 +107,10 @@ class DetalleEstacionTests(TestCase):
         no2 = contaminantes[1]
         self.assertEqual((no2['nombre'], no2['unidad']), ('DIÓXIDO DE NITRÓGENO', 'µg/m3'))
         self.assertEqual(no2['mediciones'], [
-            {'anno': 2024, 'mes': 1, 'media': 40.2},
-            {'anno': 2024, 'mes': 2, 'media': 35.5},
+            {'anno': 2024, 'mes': 1, 'media': 40.2, 'periodicidad': 'HORARIA', 'num_datos': 700,
+             'cobertura': 0.94, 'pocos_datos': False},
+            {'anno': 2024, 'mes': 2, 'media': 35.5, 'periodicidad': 'HORARIA', 'num_datos': 300,
+             'cobertura': 0.43, 'pocos_datos': True},
         ])
         self.assertEqual(contaminantes[0]['mediciones'], [])
 

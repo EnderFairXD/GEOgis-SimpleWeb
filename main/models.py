@@ -1,3 +1,5 @@
+import calendar
+
 from django.contrib.gis.db import models
 
 
@@ -58,12 +60,22 @@ class Estacion(models.Model):
 
 class MedicionMensual(models.Model):
     """Media mensual de un contaminante en una estación, calculada al importar."""
+
+    class Periodicidad(models.TextChoices):
+        HORARIA = 'HORARIA', 'Horaria'  # analizadores automáticos: un valor por hora
+        DIARIA = 'DIARIA', 'Diaria'     # captadores: un valor por día muestreado
+
+    # Una media horaria con menos de este porcentaje de horas válidas se considera poco fiable.
+    COBERTURA_MINIMA = 0.75
+
     estacion = models.ForeignKey(Estacion, on_delete=models.CASCADE, related_name='mediciones')
     contaminante = models.ForeignKey(Contaminante, on_delete=models.CASCADE, related_name='mediciones')
     anno = models.PositiveSmallIntegerField()
     mes = models.PositiveSmallIntegerField()
     media = models.FloatField()
     num_datos = models.PositiveIntegerField(help_text='Valores válidos con los que se calculó la media')
+    periodicidad = models.CharField(max_length=7, choices=Periodicidad.choices, default=Periodicidad.HORARIA,
+                                    help_text='Si la media sale de los datos horarios o de los diarios')
 
     class Meta:
         ordering = ['estacion', 'contaminante', 'anno', 'mes']
@@ -76,3 +88,16 @@ class MedicionMensual(models.Model):
 
     def __str__(self):
         return f'{self.estacion} · {self.contaminante} {self.mes:02d}/{self.anno}: {self.media:.1f}'
+
+    @property
+    def cobertura(self):
+        """Parte del mes con datos válidos (de 0 a 1): horas o días, según la periodicidad."""
+        dias = calendar.monthrange(self.anno, self.mes)[1]
+        posibles = dias * 24 if self.periodicidad == self.Periodicidad.HORARIA else dias
+        return self.num_datos / posibles
+
+    @property
+    def pocos_datos(self):
+        """Solo se aplica a las medias horarias: los captadores diarios de metales o benzo(a)pireno
+        muestrean unos pocos días al mes por diseño."""
+        return self.periodicidad == self.Periodicidad.HORARIA and self.cobertura < self.COBERTURA_MINIMA

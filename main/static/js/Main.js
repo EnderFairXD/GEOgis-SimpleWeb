@@ -78,6 +78,7 @@ document.addEventListener('DOMContentLoaded', function () {
         contaminante: document.getElementById('fichaContaminante'),
         unidad: document.getElementById('fichaUnidad'),
         sinMediciones: document.getElementById('fichaSinMediciones'),
+        notaPocosDatos: document.getElementById('fichaNotaPocosDatos'),
         radio: document.getElementById('fichaRadio'),
         cercanas: document.getElementById('fichaCercanas')
     };
@@ -148,17 +149,31 @@ document.addEventListener('DOMContentLoaded', function () {
         return elemento;
     }
 
+    // Con cuántos datos se calculó una media, para el texto emergente de cada mes.
+    function explicarMedia(m) {
+        if (m.periodicidad === 'DIARIA') {
+            return m.num_datos + (m.num_datos === 1 ? ' día muestreado' : ' días muestreados');
+        }
+        return numero(m.num_datos, 0) + ' horas válidas (' + Math.round(m.cobertura * 100) + ' % del mes)';
+    }
+
     // Tabla con las doce medias mensuales del contaminante elegido.
     function pintarMeses() {
         const contaminante = detalleActual.contaminantes[ficha.contaminante.value];
         const porMes = {};
-        (contaminante ? contaminante.mediciones : []).forEach(function (m) { porMes[m.mes] = m.media; });
+        (contaminante ? contaminante.mediciones : []).forEach(function (m) { porMes[m.mes] = m; });
 
         ficha.unidad.textContent = contaminante ? contaminante.nombre.toLowerCase() + ', en ' + contaminante.unidad.replace('m3', 'm³') : '';
         document.getElementById('fichaMesesCabecera').replaceChildren(...MESES.map(function (mes) { return celda('th', mes); }));
         document.getElementById('fichaMesesValores').replaceChildren(...MESES.map(function (_, i) {
-            return celda('td', i + 1 in porMes ? numero(porMes[i + 1], 1) : '—');
+            const m = porMes[i + 1];
+            if (!m) return celda('td', '—');
+            const td = celda('td', numero(m.media, 1) + (m.pocos_datos ? '*' : ''));
+            td.title = explicarMedia(m);
+            if (m.pocos_datos) td.className = 'pocos-datos';
+            return td;
         }));
+        ficha.notaPocosDatos.hidden = !Object.values(porMes).some(function (m) { return m.pocos_datos; });
     }
 
     function pintarDetalle(d) {

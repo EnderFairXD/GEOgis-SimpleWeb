@@ -147,6 +147,15 @@ class ImportarMedicionesTests(TestCase):
         m = MedicionMensual.objects.get(estacion=self.madrid, contaminante=self.pm10, mes=3)
         self.assertEqual((m.media, m.num_datos), (20.0, 2))
 
+    def test_guarda_si_la_media_sale_de_datos_horarios_o_diarios(self):
+        self.importar(
+            horarios=[ficheros.fila_horaria(MADRID, 8, 2024, 1, 1, [10])],
+            diarios=[ficheros.fila_diaria(MADRID, 10, 2024, 1, [20])],
+        )
+
+        self.assertEqual(MedicionMensual.objects.get(contaminante=self.no2).periodicidad, 'HORARIA')
+        self.assertEqual(MedicionMensual.objects.get(contaminante=self.pm10).periodicidad, 'DIARIA')
+
     def test_descarta_valores_negativos(self):
         self.importar(horarios=[ficheros.fila_horaria(MADRID, 8, 2024, 1, 1, [-1, 10, 20])])
 

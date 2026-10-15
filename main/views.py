@@ -65,7 +65,15 @@ def detalle_estacion(request, pk):
 
     medias = defaultdict(list)
     for m in estacion.mediciones.order_by('anno', 'mes'):
-        medias[m.contaminante_id].append({'anno': m.anno, 'mes': m.mes, 'media': round(m.media, 1)})
+        medias[m.contaminante_id].append({
+            'anno': m.anno,
+            'mes': m.mes,
+            'media': round(m.media, 1),
+            'periodicidad': m.periodicidad,
+            'num_datos': m.num_datos,
+            'cobertura': round(m.cobertura, 2),
+            'pocos_datos': m.pocos_datos,
+        })
 
     return JsonResponse({
         'id': estacion.pk,

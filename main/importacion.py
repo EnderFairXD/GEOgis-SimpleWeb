@@ -135,16 +135,17 @@ def importar_mediciones(ruta_horario, ruta_diario):
 
     Devuelve un diccionario con lo importado y lo descartado.
     """
-    sumas = _sumar_zip(ruta_horario, 'H')
+    sumas = {clave: (*suma, MedicionMensual.Periodicidad.HORARIA)
+             for clave, suma in _sumar_zip(ruta_horario, 'H').items()}
     for clave, suma in _sumar_zip(ruta_diario, 'D').items():
-        sumas.setdefault(clave, suma)
+        sumas.setdefault(clave, (*suma, MedicionMensual.Periodicidad.DIARIA))
 
     estaciones = dict(Estacion.objects.values_list('codigo', 'pk'))
     contaminantes = dict(Contaminante.objects.values_list('codigo', 'pk'))
     estaciones_desconocidas, magnitudes_desconocidas = set(), set()
     mediciones, medidos = [], set()
 
-    for (codigo, magnitud, anno, mes), (total, cuantos) in sumas.items():
+    for (codigo, magnitud, anno, mes), (total, cuantos, periodicidad) in sumas.items():
         if codigo not in estaciones:
             estaciones_desconocidas.add(codigo)
             continue
@@ -154,13 +155,13 @@ def importar_mediciones(ruta_horario, ruta_diario):
         estacion_id, contaminante_id = estaciones[codigo], contaminantes[magnitud]
         mediciones.append(MedicionMensual(
             estacion_id=estacion_id, contaminante_id=contaminante_id,
-            anno=anno, mes=mes, media=total / cuantos, num_datos=cuantos,
+            anno=anno, mes=mes, media=total / cuantos, num_datos=cuantos, periodicidad=periodicidad,
         ))
         medidos.add((estacion_id, contaminante_id))
 
     MedicionMensual.objects.bulk_create(
         mediciones, batch_size=5000, update_conflicts=True,
-        unique_fields=['estacion', 'contaminante', 'anno', 'mes'], update_fields=['media', 'num_datos'],
+        unique_fields=['estacion', 'contaminante', 'anno', 'mes'], update_fields=['media', 'num_datos', 'periodicidad'],
     )
     Mide = Estacion.contaminantes.through
     Mide.objects.bulk_create(

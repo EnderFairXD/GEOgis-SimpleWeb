@@ -120,3 +120,15 @@ footer p {
     text-align: center;
     white-space: nowrap;
 }
+
+/* Medias calculadas con pocos datos: se ven, pero atenuadas */
+.ficha-meses .pocos-datos {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.nota-pocos-datos {
+    margin-top: -0.5rem;
+    color: #6c757d;
+    font-size: 0.85rem;
+}
