@@ -29,6 +29,8 @@ estaciones que tiene alrededor. Con los 8.131 municipios de España analiza adem
 - **Cobertura de la red**: un panel calcula qué porcentaje de la población vive en un municipio
   con una estación a menos de 10, 25 o 50 km, en total y por provincia. Al acercar el zoom, los
   municipios se colorean según su distancia a la estación más cercana.
+- **Estación simulada**: se coloca (y se arrastra) una estación hipotética en el mapa para ver
+  cuánta población ganaría cobertura, en qué municipio cae y qué estaciones reales tiene cerca.
 - **Control de calidad de los datos**: cada estación se cruza con el municipio que la contiene
   según sus coordenadas. Si queda a más de 1 km del municipio que indica el MITECO, la ficha
   avisa de un posible error.
@@ -99,6 +101,28 @@ dentro o a menos del radio elegido; la población cubierta es la de esos municip
 Se mide hasta el término y no hasta un punto central porque en los municipios extensos (Cáceres
 mide 1.751 km²) cualquier punto interior puede quedar a decenas de kilómetros del casco urbano y
 de su estación. A cambio, en esos municipios se da por cubierta a toda su población.
+
+### Estación simulada
+
+<img src="docs/capturas/simulacion.jpg" alt="Estación simulada junto a Granada con el radio de 10 km y los municipios que ganaría" width="320" align="right">
+
+¿Dónde convendría poner una estación más? Al pulsar en el mapa (con *Simular una estación*
+activado) se coloca una estación hipotética que se puede arrastrar. Para ese punto se calcula:
+
+- el municipio en el que cae y sus coordenadas UTM;
+- las cinco estaciones reales más cercanas;
+- los municipios que hoy no tienen ninguna estación a menos del radio elegido y la tendrían con la
+  nueva, y la población que suman.
+
+No se guarda nada: es una consulta, así que cualquiera puede usarla. Por ejemplo, una estación en
+**Valdepeñas** (Ciudad Real), cuya estación más cercana está hoy a 54 km, cubriría a 39.818
+habitantes más a 10 km (del 82,49 % al 82,57 % de la población) y a 95.085 a 25 km.
+
+Los municipios candidatos se buscan primero por rectángulo con el índice espacial y después se mide
+la distancia exacta sobre el elipsoide. Cada simulación tarda alrededor de un segundo, casi todo
+en recalcular la distancia de los 8.131 municipios a su estación más cercana.
+
+<br clear="right">
 
 ### Estaciones fuera de su municipio
 
@@ -226,6 +250,7 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 | `GET /api/estaciones/<id>/` | Ficha: datos, coordenadas WGS84 y UTM, medias mensuales, media anual y comparación con los límites por contaminante |
 | `GET /api/estaciones/<id>/cercanas/?km=25` | Estaciones activas a menos de `km` kilómetros (hasta 1000), de la más cercana a la más lejana |
 | `GET /api/limites/?anno=2024` | Por contaminante, cuántas estaciones activas con media anual válida superan cada límite anual |
+| `GET /api/simulacion/?lat=&lng=&km=10` | Qué pasaría con una estación más en ese punto: municipio, estaciones cercanas y población que ganaría cobertura (con los municipios en GeoJSON). No guarda nada |
 | `GET /api/cobertura/?km=10` | Población y municipios con una estación a menos de `km` kilómetros, en total y por provincia |
 | `GET /api/municipios/?bbox=oeste,sur,este,norte` | Municipios de la zona visible (simplificados, como GeoJSON) con la distancia a su estación más cercana |
 | `POST /api/estaciones/<id>/ubicacion/` | Guarda `{"lat": …, "lng": …}` (dentro de España) y devuelve las nuevas coordenadas UTM. Requiere el permiso `main.change_estacion` |
@@ -238,13 +263,13 @@ Abre <http://127.0.0.1:8000/> para el mapa y <http://127.0.0.1:8000/admin/> para
 | `main/models.py` | `Estacion` (`PointField` geography), `Contaminante`, `MedicionMensual` y `Municipio` |
 | `main/geo.py` | Huso y coordenadas UTM oficiales de cada punto de España |
 | `main/limites.py` | Límites anuales del RD 102/2011 y de la Directiva (UE) 2024/2881, y cálculo de la media anual |
-| `main/cobertura.py` | Distancia de cada municipio a la estación más cercana (KNN de PostGIS) |
+| `main/cobertura.py` | Distancia de cada municipio a la estación más cercana (KNN de PostGIS) y simulación de estaciones nuevas |
 | `main/ine.py` | Nombres de las provincias por código INE |
 | `main/importacion.py` | Lectura de los ficheros del MITECO y de GISCO, medias mensuales y unión espacial |
 | `main/management/commands/` | Comandos `importar_estaciones`, `importar_mediciones` e `importar_municipios` |
 | `main/views.py` | Vista del mapa y endpoints de la API |
 | `main/static/js/Main.js` | Mapa, agrupación, ficha de la estación y corrección de ubicaciones |
-| `main/tests/` | Tests de coordenadas, importación, límites, cobertura, API, permisos y admin |
+| `main/tests/` | Tests de coordenadas, importación, límites, cobertura, simulación, API, permisos y admin |
 | `.github/workflows/tests.yml` | CI: tests con PostGIS y arranque completo con Docker Compose |
 
 ## Tests
