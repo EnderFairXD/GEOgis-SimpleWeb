@@ -1,5 +1,6 @@
 """Ficheros de prueba con el mismo formato que los del MITECO, generados en una carpeta temporal."""
 import io
+import json
 import zipfile
 from pathlib import Path
 
@@ -94,3 +95,28 @@ def fila_diaria(cod_local, magnitud, anno, mes, valores, punto='A'):
     dias = list(valores) + [None] * (31 - len(valores))
     return [cod_local // 1_000_000, cod_local // 1000 % 1000, cod_local % 1000, magnitud,
             f'{cod_local:08d}_{magnitud}_{punto}', anno, mes] + dias
+
+
+def rectangulo(oeste, sur, este, norte):
+    """Anillo de un polígono rectangular (longitud, latitud)."""
+    return [[oeste, sur], [este, sur], [este, norte], [oeste, norte], [oeste, sur]]
+
+
+def municipio(codigo_ine, nombre, anillo, poblacion=1000, pais='ES', area=100.0, multi=False):
+    """Feature con los atributos del fichero LAU de Eurostat GISCO."""
+    geometria = ({'type': 'MultiPolygon', 'coordinates': [[anillo]]} if multi
+                 else {'type': 'Polygon', 'coordinates': [anillo]})
+    return {
+        'type': 'Feature',
+        'properties': {
+            'GISCO_ID': f'{pais}_{codigo_ine}', 'CNTR_CODE': pais, 'LAU_NAME': nombre,
+            'POP_2023': poblacion, 'POP_DENS_2023': 0, 'AREA_KM2': area, 'YEAR': 2023,
+        },
+        'geometry': geometria,
+    }
+
+
+def geojson_municipios(carpeta, municipios):
+    ruta = Path(carpeta) / 'LAU.geojson'
+    ruta.write_text(json.dumps({'type': 'FeatureCollection', 'features': municipios}), encoding='utf-8')
+    return ruta

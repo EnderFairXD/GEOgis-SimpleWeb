@@ -1,6 +1,9 @@
 import calendar
 
 from django.contrib.gis.db import models
+from django.db import connection
+
+from .ine import nombre_provincia
 
 
 class Contaminante(models.Model):
@@ -17,6 +20,30 @@ class Contaminante(models.Model):
 
     def __str__(self):
         return self.abreviatura
+
+
+class Municipio(models.Model):
+    """Término municipal (límites y población de Eurostat GISCO, a partir del INE)."""
+    codigo = models.CharField(max_length=5, unique=True, help_text='Código INE: provincia y municipio')
+    nombre = models.CharField(max_length=100)
+    provincia_codigo = models.CharField(max_length=2, db_index=True)
+    poblacion = models.PositiveIntegerField()
+    area_km2 = models.FloatField(help_text='Calculada en la proyección de igual área ETRS89-LAEA (EPSG:3035)')
+    geometria = models.MultiPolygonField(srid=4326)
+    # Versión simplificada (unos 100 m) para dibujarla en el mapa sin descargar todos los vértices.
+    geometria_mapa = models.MultiPolygonField(srid=4326)
+
+    class Meta:
+        ordering = ['codigo']
+        verbose_name = 'Municipio'
+        verbose_name_plural = 'Municipios'
+
+    def __str__(self):
+        return f'{self.nombre} ({self.provincia})'
+
+    @property
+    def provincia(self):
+        return nombre_provincia(self.provincia_codigo)
 
 
 class Estacion(models.Model):
@@ -48,6 +75,9 @@ class Estacion(models.Model):
     ubicacion_corregida = models.BooleanField(
         default=False, help_text='Corregida a mano: al volver a importar no se sustituye por la del MITECO')
     contaminantes = models.ManyToManyField(Contaminante, related_name='estaciones', blank=True)
+    # Municipio que contiene la estación según sus coordenadas (unión espacial).
+    municipio_geo = models.ForeignKey(Municipio, on_delete=models.SET_NULL, null=True, blank=True,
+                                      related_name='estaciones', verbose_name='municipio según su ubicación')
 
     class Meta:
         ordering = ['codigo']
@@ -56,6 +86,40 @@ class Estacion(models.Model):
 
     def __str__(self):
         return f'{self.nombre} ({self.municipio})'
+
+    # Los límites municipales están simplificados: una estación a menos de esta distancia de su
+    # municipio declarado puede caer en el vecino sin que haya ningún error en los datos.
+    TOLERANCIA_LIMITE_KM = 1
+
+    def km_al_municipio_declarado(self):
+        """Distancia (sobre el elipsoide) desde la estación hasta el municipio de su código.
+
+        0 si está dentro; None si ese municipio no está importado.
+        """
+        if self.municipio_geo and self.municipio_geo.codigo == self.codigo_municipio:
+            return 0
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f'SELECT ST_Distance(ST_GeogFromText(%s), geometria::geography) / 1000 '
+                f'FROM {Municipio._meta.db_table} WHERE codigo = %s',
+                [self.ubicacion.ewkt, self.codigo_municipio],
+            )
+            fila = cursor.fetchone()
+        return fila and fila[0]
+
+    @property
+    def codigo_municipio(self):
+        """Código INE del municipio declarado por el MITECO (está dentro del código de la estación)."""
+        return f'{self.codigo // 1000:05d}'
+
+    def save(self, *args, **kwargs):
+        # Cada vez que cambia la ubicación se vuelve a buscar el municipio que la contiene.
+        actualizar = kwargs.get('update_fields')
+        if actualizar is None or 'ubicacion' in actualizar:
+            self.municipio_geo = Municipio.objects.filter(geometria__contains=self.ubicacion).first()
+            if actualizar is not None:
+                kwargs['update_fields'] = {*actualizar, 'municipio_geo'}
+        super().save(*args, **kwargs)
 
 
 class MedicionMensual(models.Model):

@@ -8,4 +8,6 @@ urlpatterns = [
     path('api/estaciones/<int:pk>/', views.detalle_estacion, name='detalle_estacion'),
     path('api/estaciones/<int:pk>/cercanas/', views.estaciones_cercanas, name='estaciones_cercanas'),
     path('api/estaciones/<int:pk>/ubicacion/', views.corregir_ubicacion, name='corregir_ubicacion'),
+    path('api/cobertura/', views.cobertura, name='cobertura'),
+    path('api/municipios/', views.municipios_geojson, name='municipios_geojson'),
 ]

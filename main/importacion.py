@@ -1,7 +1,10 @@
-"""Importación de los ficheros oficiales de calidad del aire del MITECO.
+"""Importación de los ficheros oficiales de calidad del aire del MITECO y de los municipios.
 
-Fuente: Ministerio para la Transición Ecológica y el Reto Demográfico (MITECO),
-«Datos oficiales de calidad del aire». Reutilización según la Ley 37/2007.
+Fuentes:
+- Ministerio para la Transición Ecológica y el Reto Demográfico (MITECO), «Datos oficiales de
+  calidad del aire». Reutilización según la Ley 37/2007.
+- Eurostat GISCO, unidades administrativas locales (LAU) 2023 con la población del INE.
+  © EuroGeographics for the administrative boundaries (uso no comercial).
 """
 import csv
 import datetime
@@ -14,15 +17,20 @@ import zipfile
 from collections import defaultdict
 from pathlib import Path
 
-from django.contrib.gis.geos import Point
+from django.contrib.gis.gdal import DataSource
+from django.contrib.gis.geos import MultiPolygon, Point
 from django.db import transaction
 from openpyxl import load_workbook
 
-from .models import Contaminante, Estacion, MedicionMensual
+from .models import Contaminante, Estacion, MedicionMensual, Municipio
 
 URL_MITECO_2024 = ('https://www.miteco.gob.es/content/dam/miteco/es/calidad-y-evaluacion-ambiental/'
                    'sgalsi/atm%c3%b3sfera-y-calidad-del-aire/evaluaci%c3%b3n-2024/')
 URL_METAINFORMACION = URL_MITECO_2024 + 'Metainformacion_2024.xlsx'
+URL_MUNICIPIOS = 'https://gisco-services.ec.europa.eu/distribution/v2/lau/gpkg/LAU_RG_01M_2023_4326.gpkg'
+# Tolerancia de la geometría simplificada que se dibuja en el mapa (grados; unos 100 m).
+TOLERANCIA_MAPA = 0.001
+EPSG_IGUAL_AREA = 3035
 URLS_MEDICIONES = {
     2024: (URL_MITECO_2024 + 'Datos_HH_2024.zip', URL_MITECO_2024 + 'Datos_DD_2024.zip'),
 }
@@ -174,3 +182,59 @@ def importar_mediciones(ruta_horario, ruta_diario):
         'estaciones_desconocidas': len(estaciones_desconocidas),
         'magnitudes_desconocidas': len(magnitudes_desconocidas),
     }
+
+
+def _multipoligono(geometria):
+    return geometria if isinstance(geometria, MultiPolygon) else MultiPolygon(geometria, srid=geometria.srid)
+
+
+@transaction.atomic
+def importar_municipios(ruta):
+    """Carga los municipios de España del fichero LAU de GISCO y asigna a cada estación el que la
+    contiene según sus coordenadas.
+
+    Devuelve un diccionario con los municipios importados y las estaciones cuyas coordenadas caen
+    en otro municipio que el de su código o fuera de todos.
+    """
+    capa = DataSource(str(ruta))[0]
+    columna_poblacion = next(c for c in capa.fields if c.startswith('POP_') and 'DENS' not in c)
+
+    municipios = []
+    for elemento in capa:
+        if elemento.get('CNTR_CODE') != 'ES':
+            continue
+        geometria = elemento.geom.geos
+        geometria.srid = 4326
+        geometria = _multipoligono(geometria)
+        codigo = elemento.get('GISCO_ID').split('_', 1)[1]
+        municipios.append(Municipio(
+            codigo=codigo,
+            nombre=elemento.get('LAU_NAME'),
+            provincia_codigo=codigo[:2],
+            poblacion=int(elemento.get(columna_poblacion) or 0),
+            # La columna AREA_KM2 de GISCO no cuadra con los polígonos de España: el área se calcula
+            # en ETRS89-LAEA (EPSG:3035), la proyección de igual área de referencia en Europa.
+            area_km2=geometria.transform(EPSG_IGUAL_AREA, clone=True).area / 1_000_000,
+            geometria=geometria,
+            geometria_mapa=_multipoligono(geometria.simplify(TOLERANCIA_MAPA, preserve_topology=True)),
+        ))
+
+    Municipio.objects.bulk_create(
+        municipios, batch_size=500, update_conflicts=True, unique_fields=['codigo'],
+        update_fields=['nombre', 'provincia_codigo', 'poblacion', 'area_km2', 'geometria', 'geometria_mapa'],
+    )
+
+    # Unión espacial: guardar la ubicación vuelve a buscar el municipio que contiene cada estación.
+    # Las que no caen en el municipio de su código se separan según lo lejos que queden de él.
+    junto_al_limite, posibles_errores = 0, []
+    for estacion in Estacion.objects.all():
+        estacion.save(update_fields=['ubicacion'])
+        km = estacion.km_al_municipio_declarado()
+        if not km:
+            continue
+        if km <= Estacion.TOLERANCIA_LIMITE_KM:
+            junto_al_limite += 1
+        else:
+            posibles_errores.append((estacion, km))
+
+    return {'municipios': len(municipios), 'junto_al_limite': junto_al_limite, 'posibles_errores': posibles_errores}

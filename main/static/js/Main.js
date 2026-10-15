@@ -90,12 +90,16 @@ document.addEventListener('DOMContentLoaded', function () {
         return par ? decodeURIComponent(par.split('=')[1]) : '';
     }
 
+    // Si la API responde con error, el Error lleva el estado y el mensaje que explica el servidor.
     function pedirJson(url, opciones) {
         return fetch(url, opciones).then(function (respuesta) {
-            if (!respuesta.ok) {
-                throw new Error('El servidor respondió ' + respuesta.status);
-            }
-            return respuesta.json();
+            if (respuesta.ok) return respuesta.json();
+            return respuesta.json().catch(function () { return {}; }).then(function (cuerpo) {
+                const error = new Error('El servidor respondió ' + respuesta.status);
+                error.estado = respuesta.status;
+                error.mensaje = cuerpo.msg;
+                throw error;
+            });
         });
     }
 
@@ -187,6 +191,16 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('fichaAltitud').textContent = numero(d.altitud, 0) + ' m';
         document.getElementById('fichaRed').textContent = d.red;
         document.getElementById('fichaDireccion').textContent = d.direccion || 'Sin dirección';
+
+        // Coordenadas lejos del municipio declarado: probablemente un error en los datos del MITECO.
+        const aviso = document.getElementById('fichaAvisoMunicipio');
+        const municipio = d.municipio_geo;
+        aviso.hidden = !(municipio && municipio.posible_error);
+        if (!aviso.hidden) {
+            aviso.textContent = 'Sus coordenadas caen en ' + municipio.nombre + ', a ' +
+                numero(municipio.distancia_al_declarado_km, 1) + ' km del municipio que indica el MITECO (' +
+                d.municipio + '). Puede haber un error en la ubicación o en el municipio.';
+        }
 
         const wgs84 = d.coordenadas.wgs84;
         const utm = d.coordenadas.utm;
@@ -299,6 +313,163 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
+    // ---- Cobertura: municipios coloreados según su distancia a la estación activa más cercana ----
+
+    // Tres tramos ordenados respecto al radio elegido: un solo tono, de claro a oscuro.
+    const TRAMOS_COBERTURA = [
+        { color: '#9ec5f4', texto: function (r) { return 'A menos de ' + r + ' km'; } },
+        { color: '#2a78d6', texto: function (r) { return 'Entre ' + r + ' y ' + 2 * r + ' km'; } },
+        { color: '#104281', texto: function (r) { return 'A más de ' + 2 * r + ' km'; } }
+    ];
+    const ZOOM_MINIMO_MUNICIPIOS = 9;  // con menos zoom la zona visible tiene miles de municipios
+    const cobertura = { activa: false, radio: 10, capa: null, peticion: 0 };
+
+    function tramo(distanciaKm) {
+        if (distanciaKm === null || distanciaKm > 2 * cobertura.radio) return 2;
+        return distanciaKm <= cobertura.radio ? 0 : 1;
+    }
+
+    const controlCobertura = L.control({ position: 'topright' });
+    controlCobertura.onAdd = function () {
+        const caja = L.DomUtil.create('div', 'panel-cobertura');
+        caja.innerHTML =
+            '<button type="button" class="btn btn-sm btn-light w-100" aria-pressed="false">Ver cobertura</button>' +
+            '<div class="cuerpo" hidden>' +
+            '  <label class="d-flex align-items-center gap-2 mb-2">Radio' +
+            '    <select class="form-select form-select-sm w-auto">' +
+            '      <option value="10" selected>10 km</option><option value="25">25 km</option><option value="50">50 km</option>' +
+            '    </select></label>' +
+            '  <p class="resumen mb-2">Calculando…</p>' +
+            '  <ul class="tramos list-unstyled mb-2"></ul>' +
+            '  <p class="aviso-zoom text-muted small mb-2" hidden>Acerca el zoom para ver los municipios.</p>' +
+            '  <details><summary>Cobertura por provincia</summary>' +
+            '    <table class="table table-sm mb-0"><thead><tr><th scope="col">Provincia</th>' +
+            '    <th scope="col" class="text-end">Población cubierta</th></tr></thead><tbody></tbody></table>' +
+            '  </details>' +
+            '</div>';
+        L.DomEvent.disableClickPropagation(caja);
+        L.DomEvent.disableScrollPropagation(caja);
+        return caja;
+    };
+    controlCobertura.addTo(mapa);
+
+    const panel = controlCobertura.getContainer();
+    const botonCobertura = panel.querySelector('button');
+    const selectorCobertura = panel.querySelector('select');
+
+    function pintarTramos() {
+        panel.querySelector('.tramos').replaceChildren(...TRAMOS_COBERTURA.map(function (t) {
+            const li = document.createElement('li');
+            const muestra = document.createElement('span');
+            muestra.className = 'muestra';
+            muestra.style.background = t.color;
+            li.appendChild(muestra);
+            li.appendChild(document.createTextNode(t.texto(cobertura.radio) + ' de una estación'));
+            return li;
+        }));
+    }
+
+    function cargarResumen() {
+        const radio = cobertura.radio;
+        panel.querySelector('.resumen').textContent = 'Calculando…';
+        pedirJson('/api/cobertura/?km=' + radio).then(function (datos) {
+            if (radio !== cobertura.radio) return;
+            panel.querySelector('.resumen').textContent =
+                'El ' + numero(datos.poblacion.porcentaje, 1) + ' % de la población vive en un municipio con una estación ' +
+                'a menos de ' + radio + ' km (' + numero(datos.municipios.cubiertos, 0) + ' de ' +
+                numero(datos.municipios.total, 0) + ' municipios).';
+            panel.querySelector('tbody').replaceChildren(...datos.provincias.map(function (p) {
+                const fila = document.createElement('tr');
+                fila.appendChild(celda('td', p.nombre));
+                const valor = celda('td', numero(p.porcentaje, 1) + ' %');
+                valor.className = 'text-end';
+                fila.appendChild(valor);
+                return fila;
+            }));
+        }).catch(function (error) {
+            console.error('No se pudo calcular la cobertura:', error);
+            panel.querySelector('.resumen').textContent = 'No se pudo calcular la cobertura. Prueba otra vez.';
+        });
+    }
+
+    function quitarMunicipios() {
+        if (cobertura.capa) {
+            mapa.removeLayer(cobertura.capa);
+            cobertura.capa = null;
+        }
+    }
+
+    function avisarZoom(texto) {
+        const aviso = panel.querySelector('.aviso-zoom');
+        aviso.hidden = !texto;
+        aviso.textContent = texto || '';
+    }
+
+    function cargarMunicipios() {
+        if (!cobertura.activa) return;
+        if (mapa.getZoom() < ZOOM_MINIMO_MUNICIPIOS) {
+            avisarZoom('Acerca el zoom para ver los municipios.');
+            quitarMunicipios();
+            return;
+        }
+        avisarZoom(null);
+        const peticion = ++cobertura.peticion;
+        pedirJson('/api/municipios/?bbox=' + mapa.getBounds().toBBoxString()).then(function (datos) {
+            // Solo vale la respuesta de la última petición (al mover el mapa se piden otras).
+            if (peticion !== cobertura.peticion || !cobertura.activa) return;
+            quitarMunicipios();
+            cobertura.capa = L.geoJSON(datos, {
+                pmIgnore: true,  // el modo arrastrar no debe mover los municipios
+                attribution: '© EuroGeographics for the administrative boundaries',
+                style: function (f) {
+                    return { color: '#ffffff', weight: 0.6, fillColor: TRAMOS_COBERTURA[tramo(f.properties.distancia_km)].color, fillOpacity: 0.55 };
+                },
+                onEachFeature: function (f, capa) {
+                    const p = f.properties;
+                    const distancia = p.distancia_km === 0 ? 'tiene estación en su término'
+                        : p.distancia_km === null ? 'sin estaciones activas'
+                        : 'estación más cercana a ' + numero(p.distancia_km, 1) + ' km';
+                    capa.bindTooltip(p.nombre + ': ' + numero(p.poblacion, 0) + ' hab., ' + distancia, { sticky: true });
+                }
+            }).addTo(mapa);
+            cobertura.capa.bringToBack();
+        }).catch(function (error) {
+            if (peticion !== cobertura.peticion) return;
+            quitarMunicipios();
+            // 400: la zona tiene demasiados municipios; el servidor explica qué hacer.
+            avisarZoom(error.estado === 400 && error.mensaje ? error.mensaje + '.'
+                : 'No se pudieron cargar los municipios. Mueve el mapa para volver a intentarlo.');
+            console.error('No se pudieron cargar los municipios:', error);
+        });
+    }
+
+    botonCobertura.addEventListener('click', function () {
+        cobertura.activa = !cobertura.activa;
+        botonCobertura.setAttribute('aria-pressed', String(cobertura.activa));
+        botonCobertura.textContent = cobertura.activa ? 'Ocultar cobertura' : 'Ver cobertura';
+        panel.querySelector('.cuerpo').hidden = !cobertura.activa;
+        if (cobertura.activa) {
+            pintarTramos();
+            cargarResumen();
+            cargarMunicipios();
+        } else {
+            quitarMunicipios();
+        }
+    });
+
+    selectorCobertura.addEventListener('change', function () {
+        cobertura.radio = Number(selectorCobertura.value);
+        pintarTramos();
+        cargarResumen();
+        if (cobertura.capa) {
+            cobertura.capa.setStyle(function (f) {
+                return { fillColor: TRAMOS_COBERTURA[tramo(f.properties.distancia_km)].color };
+            });
+        }
+    });
+
+    mapa.on('moveend', cargarMunicipios);
 
     pedirJson(elementoMapa.dataset.urlEstaciones).then(pintarEstaciones).catch(function (error) {
         console.error('No se pudieron cargar las estaciones:', error);
