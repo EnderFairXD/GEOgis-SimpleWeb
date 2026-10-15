@@ -353,7 +353,7 @@ def simular_estacion(request):
     y población que pasaría a tener una estación a menos de ?km= (10 por defecto). No guarda nada."""
     punto = punto_en_espana(request.GET.get('lat'), request.GET.get('lng'))
     if punto is None:
-        return error('Indica lat y lng de un punto de España', 400)
+        return error('La estación tiene que estar dentro de España', 400)
     km = leer_radio(request, RADIO_COBERTURA_POR_DEFECTO_KM)
     if km is None:
         return error(f'El radio debe estar entre 0 y {RADIO_MAXIMO_KM} km', 400)

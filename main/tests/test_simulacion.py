@@ -59,6 +59,12 @@ class SimulacionTests(CoberturaTestCase):
     def test_en_el_mar_no_cae_en_ningun_municipio(self):
         self.assertIsNone(self.simular(lat=36.5, lng=-1.0).json()['municipio'])
 
+    def test_fuera_de_espana_explica_que_hacer(self):
+        respuesta = self.simular(lat=41.9, lng=12.5)  # Roma
+
+        self.assertEqual(respuesta.status_code, 400)
+        self.assertEqual(respuesta.json()['msg'], 'La estación tiene que estar dentro de España')
+
     def test_datos_no_validos(self):
         for params in [{}, {'lat': 'a', 'lng': '1'}, {'lat': 41.9, 'lng': 12.5},
                        {'lat': 40.4, 'lng': -3.7, 'km': '0'}, {'lat': 40.4, 'lng': -3.7, 'km': 'x'}]:

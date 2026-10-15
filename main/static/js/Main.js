@@ -745,8 +745,16 @@ document.addEventListener('DOMContentLoaded', function () {
         simular();
     }
 
+    // Un doble clic (para acercar el zoom) también produce dos clics: se espera un momento antes de
+    // colocar la estación y, si llega el doble clic, no se mueve.
+    let clicPendiente = null;
     mapa.on('click', function (evento) {
-        if (simulacion.activa) colocarEstacionSimulada(evento.latlng);
+        if (!simulacion.activa) return;
+        clearTimeout(clicPendiente);
+        clicPendiente = setTimeout(function () { colocarEstacionSimulada(evento.latlng); }, 250);
+    });
+    mapa.on('dblclick', function () {
+        clearTimeout(clicPendiente);
     });
 
     botonSimulacion.addEventListener('click', function () {

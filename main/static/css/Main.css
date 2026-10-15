@@ -245,3 +245,25 @@ footer p {
 #mi_mapa.simulando {
     cursor: crosshair;
 }
+
+.panel-simulacion {
+    max-height: calc(100vh - 16rem);
+    overflow-y: auto;
+}
+
+/* En pantallas estrechas los paneles no deben tapar el mapa */
+@media (max-width: 576px) {
+    .panel-cobertura,
+    .panel-simulacion {
+        width: 12.5rem;
+        font-size: 0.8rem;
+    }
+
+    .panel-cobertura {
+        max-height: calc(50vh - 6rem);
+    }
+
+    .panel-simulacion {
+        max-height: calc(50vh - 8rem);
+    }
+}
