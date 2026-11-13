@@ -30,6 +30,9 @@ jobs:
       DB_HOST: localhost
       DB_PASSWORD: postgres
       DJANGO_SECRET_KEY: solo-para-ci
+      # Los tests funcionales van en modo desarrollo (sin redirección a HTTPS), como en
+      # local. Los de producción (test_produccion) cargan su propio entorno de producción.
+      DJANGO_DEBUG: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -74,3 +77,42 @@ jobs:
       - name: Parar
         if: always()
         run: docker compose down -v
+
+  produccion:
+    name: Imagen de producción (prueba de humo)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Arrancar docker-compose.prod.yml con secretos de prueba
+        run: |
+          {
+            echo "DJANGO_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')"
+            echo "DJANGO_ALLOWED_HOSTS=geogis.localtest"
+            echo "DJANGO_CSRF_TRUSTED_ORIGINS=https://geogis.localtest"
+            echo "DB_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+          } > .env.prod
+          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+      - name: Comprobar que se comporta como producción
+        run: |
+          U=http://127.0.0.1:8000; H='Host: geogis.localtest'; P='X-Forwarded-Proto: https'
+          for i in $(seq 60); do curl -s -o /dev/null -H "$H" -H "$P" $U/ && break; sleep 2; done
+          codigo() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          comprobar() { echo "$1: $2 (esperado $3)"; [ "$2" = "$3" ]; }
+          comprobar "HTTP redirige a HTTPS" "$(codigo -H "$H" $U/)" 301
+          comprobar "Portada" "$(codigo -H "$H" -H "$P" $U/)" 200
+          comprobar "Estático de Leaflet" "$(codigo -H "$H" -H "$P" $U/static/leaflet/leaflet.css)" 200
+          comprobar "Dominio no permitido" "$(codigo -H 'Host: otro.example' -H "$P" $U/)" 400
+          comprobar "Página inexistente" "$(codigo -H "$H" -H "$P" $U/no-existe)" 404
+          curl -sI -H "$H" -H "$P" $U/ | grep -qi '^strict-transport-security' && echo "HSTS: sí"
+          ! curl -s -H "$H" -H "$P" $U/no-existe | grep -qiE 'DEBUG = True|Traceback' && echo "Sin páginas de depuración"
+
+      - name: Registros si algo falla
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.prod logs
+
+      - name: Parar
+        if: always()
+        run: docker compose -f docker-compose.prod.yml --env-file .env.prod down -v

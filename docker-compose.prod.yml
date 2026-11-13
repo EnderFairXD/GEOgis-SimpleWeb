@@ -1,0 +1,45 @@
+# Producción. Uso:
+#   cp .env.prod.example .env.prod   # y rellénalo
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# La web solo escucha en 127.0.0.1: delante tiene que haber un proxy que sirva el
+# HTTPS (Caddy, nginx, un túnel de Cloudflare...) y envíe X-Forwarded-Proto.
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-GeoDjango}
+      POSTGRES_USER: ${DB_USER:-geogis}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD en .env.prod}
+    volumes:
+      - datos_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PUERTO:-8000}:8000"
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-GeoDjango}
+      DB_USER: ${DB_USER:-geogis}
+      DB_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD en .env.prod}
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Falta DJANGO_SECRET_KEY en .env.prod}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Falta DJANGO_ALLOWED_HOSTS en .env.prod}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:?Falta DJANGO_CSRF_TRUSTED_ORIGINS en .env.prod}
+      DJANGO_SECURE_HSTS_SECONDS: ${DJANGO_SECURE_HSTS_SECONDS:-31536000}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-3}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  datos_postgres:

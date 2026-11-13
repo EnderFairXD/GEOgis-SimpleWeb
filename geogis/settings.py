@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -22,16 +24,45 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+def _lista(nombre):
+    """Lista separada por comas de una variable de entorno, sin elementos vacíos."""
+    return [v.strip() for v in os.environ.get(nombre, '').split(',') if v.strip()]
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-solo-para-desarrollo-local')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+def _si(nombre, por_defecto):
+    return os.environ.get(nombre, '1' if por_defecto else '0') == '1'
 
-ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h]
+
+# Producción por defecto: el modo desarrollo hay que pedirlo con DJANGO_DEBUG=1
+# (lo hacen docker-compose.yml y .env.example).
+DEBUG = _si('DJANGO_DEBUG', False)
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            'Falta DJANGO_SECRET_KEY. En producción es obligatoria; para desarrollar en local '
+            'pon DJANGO_DEBUG=1.'
+        )
+    SECRET_KEY = 'django-insecure-solo-para-desarrollo-local'
+
+ALLOWED_HOSTS = _lista('DJANGO_ALLOWED_HOSTS')
+
+# Orígenes desde los que se aceptan formularios con sesión (login del admin y
+# corrección de ubicaciones), con esquema: https://geogis.example.com
+CSRF_TRUSTED_ORIGINS = _lista('DJANGO_CSRF_TRUSTED_ORIGINS')
+
+if not DEBUG:
+    # La aplicación va detrás de un proxy que termina el HTTPS (Caddy, nginx, un
+    # túnel o la propia plataforma) y avisa con X-Forwarded-Proto. Gunicorn no debe
+    # quedar expuesto directamente: docker-compose.prod.yml lo publica solo en local.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = _si('DJANGO_SECURE_SSL_REDIRECT', True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_SECURE_HSTS_SECONDS', 60 * 60 * 24 * 365))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = _si('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+    SECURE_HSTS_PRELOAD = _si('DJANGO_SECURE_HSTS_PRELOAD', False)
 
 
 # Application definition
@@ -49,6 +80,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Sirve los estáticos (Leaflet, CSS, admin) sin servidor web aparte.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -128,6 +161,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # destino de collectstatic al desplegar
+
+# WhiteNoise sirve los estáticos comprimidos (gzip/brotli). Sin manifiesto de nombres
+# con hash, para que los tests y el modo desarrollo no necesiten collectstatic.
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

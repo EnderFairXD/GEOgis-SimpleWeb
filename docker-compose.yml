@@ -15,6 +15,11 @@ services:
 
   web:
     build: .
+    # Desarrollo: servidor de Django con recarga automática. La imagen arranca
+    # gunicorn por defecto (producción, ver docker-compose.prod.yml).
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    # Como root, como antes, para poder escribir en el código montado (p. ej. makemigrations).
+    user: root
     ports:
       - "8000:8000"
     environment:

@@ -211,6 +211,33 @@ docker compose exec web python manage.py createsuperuser
 
 Abre <http://localhost:8000/>.
 
+## Producción con Docker
+
+La imagen arranca en modo producción: gunicorn, `DEBUG` apagado, estáticos servidos
+comprimidos por WhiteNoise y el proceso sin permisos de root. `docker-compose.yml` es solo
+para desarrollo; para producción está `docker-compose.prod.yml`:
+
+```bash
+cp .env.prod.example .env.prod   # clave secreta, dominio y contraseña de la base de datos
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Los datos se importan igual que en desarrollo, añadiendo `-f docker-compose.prod.yml --env-file .env.prod`
+a cada `docker compose exec`.
+
+La web solo escucha en `127.0.0.1:8000`. Delante tiene que haber un proxy que sirva el HTTPS
+y envíe la cabecera `X-Forwarded-Proto`: Caddy, nginx, un túnel de Cloudflare o la propia
+plataforma donde se despliegue. Con `DEBUG` apagado, Django:
+
+- no arranca sin `DJANGO_SECRET_KEY`;
+- redirige a HTTPS y envía HSTS (un año por defecto, `DJANGO_SECURE_HSTS_SECONDS`);
+- marca las cookies de sesión y CSRF como seguras;
+- solo acepta los dominios de `DJANGO_ALLOWED_HOSTS`, y formularios (login del admin, mover
+  estaciones) desde `DJANGO_CSRF_TRUSTED_ORIGINS`.
+
+`python manage.py check --deploy` lo comprueba, y los tests de `main/tests/test_produccion.py`
+lo vigilan en cada push.
+
 ## Instalación manual
 
 ### Requisitos
@@ -230,7 +257,7 @@ pip install -r requirements.txt
 createdb GeoDjango
 psql -d GeoDjango -c "CREATE EXTENSION postgis;"
 
-cp .env.example .env     # rellena DB_PASSWORD y DJANGO_SECRET_KEY (se lee automáticamente)
+cp .env.example .env     # rellena DB_PASSWORD; trae DJANGO_DEBUG=1 para desarrollar (se lee automáticamente)
 
 python manage.py migrate
 python manage.py importar_estaciones
